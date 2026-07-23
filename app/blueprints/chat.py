@@ -21,6 +21,7 @@ from flask import (
 from ..db import get_db
 from ..security import current_user, login_required, rate_limit
 from ..validators import validate_text
+from .notifications import add_notification
 
 bp = Blueprint("chat", __name__, url_prefix="/chat")
 
@@ -106,6 +107,12 @@ def thread(product_id, peer_id):
             """INSERT INTO messages (product_id, sender_id, receiver_id, body)
                VALUES (?, ?, ?, ?)""",
             (product_id, me["id"], other_id, body),
+        )
+        # 받는 사람에게 알림. 링크는 받는 사람 기준 대화방(상대=나).
+        add_notification(
+            db, other_id,
+            f"{me['display_name']}님이 '{product['title']}'에 메시지를 보냈어요.",
+            url_for("chat.thread", product_id=product_id, peer_id=me["id"]),
         )
         db.commit()
         return redirect(url_for("chat.thread", product_id=product_id, peer_id=peer_id))

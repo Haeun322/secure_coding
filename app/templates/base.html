@@ -20,6 +20,34 @@
       <a href="{{ url_for('chat.inbox') }}">메시지</a>
       <a href="{{ url_for('payments.my_orders') }}">구매내역</a>
       <a href="{{ url_for('payments.wallet') }}">지갑</a>
+
+      <span class="notif">
+        <button type="button" class="notif-bell linkbtn" data-notif-toggle>
+          🔔{% if notif_unread %}<span class="notif-badge">{{ notif_unread }}</span>{% endif %}
+        </button>
+        <span class="notif-panel" data-notif-panel hidden>
+          <span class="notif-head">
+            <strong>알림 {{ notif_unread }}</strong>
+            {% if notif_recent %}
+            <form method="post" action="{{ url_for('notifications.read_all') }}" class="inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="linkbtn">모두 읽음</button>
+            </form>
+            {% endif %}
+          </span>
+          {% for n in notif_recent %}
+            <a class="notif-item {% if not n['is_read'] %}unread{% endif %}"
+               href="{{ url_for('notifications.go', notif_id=n['id']) }}">
+              <span class="notif-text">{{ n['text'] }}</span>
+              <small class="muted">{{ n['created_at'] }}</small>
+            </a>
+          {% else %}
+            <span class="notif-empty muted">새 알림이 없습니다.</span>
+          {% endfor %}
+          <a class="notif-more" href="{{ url_for('notifications.index') }}">전체 보기</a>
+        </span>
+      </span>
+
       <a href="{{ url_for('auth.me') }}">{{ current_user['display_name'] }}</a>
       {% if current_user['role'] == 'admin' %}
         <a class="admin-link" href="{{ url_for('admin.dashboard') }}">관리자</a>

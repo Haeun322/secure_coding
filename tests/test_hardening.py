@@ -584,6 +584,51 @@ def test_chat_third_party_cannot_read(app):
     assert "비밀문의" not in r
 
 
+# --- 알림 ----------------------------------------------------------------
+def _unread_badge(client):
+    import re as _re
+    m = _re.search(r'notif-badge">(\d+)<', client.get("/").get_data(as_text=True))
+    return int(m.group(1)) if m else 0
+
+
+def test_message_creates_notification(app):
+    seller = app.test_client()
+    register(seller, "nsell"); login(seller, "nsell")     # id 2
+    _create_priced_product(seller, 100, "알림상품")        # id 1
+    buyer = app.test_client()
+    register(buyer, "nbuy"); login(buyer, "nbuy")          # id 3
+
+    assert _unread_badge(seller) == 0
+    buyer.post("/chat/1/2", data={"csrf_token": csrf_from(buyer, "/wallet/"),
+                                  "body": "문의드려요"}, follow_redirects=True)
+
+    # 판매자에게 안 읽은 알림 1개가 뜬다
+    assert _unread_badge(seller) == 1
+    page = seller.get("/notifications/").get_data(as_text=True)
+    assert "메시지를 보냈어요" in page
+
+    # 모두 읽음 처리하면 배지가 사라진다
+    seller.post("/notifications/read-all",
+                data={"csrf_token": csrf_from(seller, "/wallet/")}, follow_redirects=True)
+    assert _unread_badge(seller) == 0
+
+
+def test_notification_idor_blocked(app):
+    seller = app.test_client()
+    register(seller, "nis"); login(seller, "nis")          # id 2
+    _create_priced_product(seller, 100, "상품")             # id 1
+    buyer = app.test_client()
+    register(buyer, "nib"); login(buyer, "nib")            # id 3
+    buyer.post("/chat/1/2", data={"csrf_token": csrf_from(buyer, "/wallet/"),
+                                  "body": "hi"}, follow_redirects=True)
+
+    conn = sqlite3.connect(app.config["DATABASE"])
+    nid = conn.execute("SELECT id FROM notifications ORDER BY id DESC LIMIT 1").fetchone()[0]
+    conn.close()
+    # 알림 주인이 아닌 사람(구매자)이 열람/읽음 처리 시도 -> 403
+    assert buyer.get(f"/notifications/{nid}/go").status_code == 403
+
+
 # --- 금액 파서 엄격성(단위 테스트) ----------------------------------------
 def test_amount_parser_strictness():
     from app.validators import validate_amount

@@ -83,6 +83,17 @@ CREATE TABLE IF NOT EXISTS reviews (
 );
 CREATE INDEX IF NOT EXISTS idx_reviews_target ON reviews(target_id);
 
+-- 알림 -------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS notifications (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    text       TEXT    NOT NULL,
+    link       TEXT    NOT NULL DEFAULT '',
+    is_read    INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_read, id);
+
 -- 상품별 1:1 메시지 --------------------------------------------------------
 -- 대화는 '상품' 단위로 나뉜다. 같은 상대라도 상품이 다르면 다른 대화방이다.
 CREATE TABLE IF NOT EXISTS messages (

@@ -23,6 +23,7 @@ from werkzeug.security import check_password_hash
 from ..db import get_db, get_write_connection
 from ..security import current_user, login_required, rate_limit
 from ..validators import validate_amount, validate_text, validate_rating
+from .notifications import add_notification
 
 bp = Blueprint("payments", __name__, url_prefix="/wallet")
 
@@ -173,6 +174,11 @@ def buy(product_id):
             "INSERT INTO messages (product_id, sender_id, receiver_id, body) VALUES (?, ?, ?, ?)",
             (product_id, me["id"], product["seller_id"], note),
         )
+        add_notification(
+            db, product["seller_id"],
+            f"{me['display_name']}님이 '{product['title']}'을(를) 결제(보류)했어요.",
+            url_for("products.detail", product_id=product_id),
+        )
         db.commit()
     return redirect(back)
 
@@ -195,6 +201,16 @@ def confirm_order(order_id):
 
     ok, message = _settle_order(order_id)
     flash(message)
+    if ok:
+        title = db.execute("SELECT title FROM products WHERE id = ?",
+                           (order["product_id"],)).fetchone()
+        pt = title["title"] if title else "상품"
+        add_notification(
+            db, order["seller_id"],
+            f"'{pt}' 구매가 확정되어 {order['amount']:,}원이 정산되었어요.",
+            url_for("payments.wallet"),
+        )
+        db.commit()
     return redirect(back)
 
 
@@ -216,6 +232,14 @@ def cancel_order(order_id):
 
     ok, message = _refund_order(order_id)
     flash(message)
+    if ok:
+        # 취소를 한 사람의 상대방에게 알린다.
+        other = order["seller_id"] if me["id"] == order["buyer_id"] else order["buyer_id"]
+        title = db.execute("SELECT title FROM products WHERE id = ?",
+                           (order["product_id"],)).fetchone()
+        pt = title["title"] if title else "상품"
+        add_notification(db, other, f"'{pt}' 거래가 취소되었어요.", back)
+        db.commit()
     return redirect(back)
 
 
@@ -380,6 +404,11 @@ def review_order(order_id):
             """INSERT INTO reviews (order_id, reviewer_id, target_id, rating, comment)
                VALUES (?, ?, ?, ?, ?)""",
             (order_id, me["id"], order["seller_id"], rating, comment),
+        )
+        add_notification(
+            db, order["seller_id"],
+            f"{me['display_name']}님이 거래 후기(별점 {rating})를 남겼어요.",
+            url_for("auth.profile", user_id=order["seller_id"]),
         )
         db.commit()
         flash("후기를 남겼습니다. 고맙습니다!")

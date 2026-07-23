@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}알림{% endblock %}
+{% block content %}
+<h1>알림</h1>
+<div class="card">
+  {% if notifications %}
+    <form method="post" action="{{ url_for('notifications.read_all') }}" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit">모두 읽음 처리</button>
+    </form>
+    <div class="mt">
+      {% for n in notifications %}
+        <a class="notif-row {% if not n['is_read'] %}unread{% endif %}"
+           href="{{ url_for('notifications.go', notif_id=n['id']) }}">
+          <div>{{ n['text'] }}</div>
+          <small class="muted">{{ n['created_at'] }}{% if not n['is_read'] %} · 새 알림{% endif %}</small>
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="muted">알림이 없습니다.</p>
+  {% endif %}
+</div>
+{% endblock %}

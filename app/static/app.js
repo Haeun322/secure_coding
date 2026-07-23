@@ -15,4 +15,18 @@ document.addEventListener('DOMContentLoaded', function () {
       if (el.form) { el.form.submit(); }
     });
   });
+
+  // 알림 드롭다운 토글
+  var bell = document.querySelector('[data-notif-toggle]');
+  var panel = document.querySelector('[data-notif-panel]');
+  if (bell && panel) {
+    bell.addEventListener('click', function (e) {
+      e.stopPropagation();
+      panel.hidden = !panel.hidden;
+    });
+    panel.addEventListener('click', function (e) { e.stopPropagation(); });
+    document.addEventListener('click', function () {
+      if (!panel.hidden) { panel.hidden = true; }
+    });
+  }
 });

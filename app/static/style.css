@@ -105,6 +105,29 @@ th { background: #f0f2f5; }
 .review { padding: 10px 0; border-bottom: 1px solid #eef0f3; }
 .review:last-child { border-bottom: none; }
 
+/* 알림 종/드롭다운 */
+.notif { position: relative; display: inline-block; }
+.notif-bell { font-size: 1.15rem; position: relative; padding: 0 4px; }
+.notif-badge {
+  position: absolute; top: -6px; right: -8px; background: #b3261e; color: #fff;
+  font-size: .68rem; line-height: 1; padding: 2px 5px; border-radius: 999px;
+}
+.notif-panel {
+  position: absolute; right: 0; top: 28px; width: 320px; max-height: 420px; overflow-y: auto;
+  background: #fff; border: 1px solid #d7dbe0; border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.12); z-index: 50; padding: 6px;
+}
+.notif-head { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; }
+.notif-item, .notif-row {
+  display: block; padding: 10px; border-radius: 8px; color: #1f2328;
+  border-bottom: 1px solid #f0f2f5;
+}
+.notif-item:hover, .notif-row:hover { background: #f6f7f9; text-decoration: none; }
+.notif-item.unread, .notif-row.unread { background: #eef4ff; }
+.notif-text { display: block; }
+.notif-empty { display: block; padding: 14px 10px; }
+.notif-more { display: block; text-align: center; padding: 10px; font-weight: 600; }
+
 /* 유틸리티 클래스: 인라인 style 속성을 없애 CSP(style-src 'self')를 지키기 위함 */
 .narrow { max-width: 480px; margin: 0 auto; }
 .wide-form { max-width: 560px; margin: 0 auto; }

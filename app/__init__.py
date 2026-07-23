@@ -39,7 +39,9 @@ def create_app(test_config=None):
     init_security_headers(app)
 
     # 블루프린트 등록
-    from .blueprints import auth, products, chat, payments, reports, admin, main
+    from .blueprints import (
+        auth, products, chat, payments, reports, admin, main, notifications,
+    )
 
     app.register_blueprint(main.bp)
     app.register_blueprint(auth.bp)
@@ -48,16 +50,34 @@ def create_app(test_config=None):
     app.register_blueprint(payments.bp)
     app.register_blueprint(reports.bp)
     app.register_blueprint(admin.bp)
+    app.register_blueprint(notifications.bp)
 
-    # 템플릿 전역: 현재 사용자 + 카테고리/정렬 상수
+    # 템플릿 전역: 현재 사용자 + 카테고리/정렬 상수 + 알림
     from .constants import CATEGORIES, SORTS
 
     @app.context_processor
     def inject_globals():
+        user = current_user()
+        unread = 0
+        notes = []
+        if user is not None:
+            conn = db.get_db()
+            unread = conn.execute(
+                "SELECT COUNT(*) AS c FROM notifications WHERE user_id = ? AND is_read = 0",
+                (user["id"],),
+            ).fetchone()["c"]
+            notes = conn.execute(
+                """SELECT id, text, link, is_read, created_at
+                   FROM notifications WHERE user_id = ?
+                   ORDER BY id DESC LIMIT 8""",
+                (user["id"],),
+            ).fetchall()
         return {
-            "current_user": current_user(),
+            "current_user": user,
             "CATEGORIES": CATEGORIES,
             "SORTS": SORTS,
+            "notif_unread": unread,
+            "notif_recent": notes,
         }
 
     # 에러 페이지
