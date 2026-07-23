@@ -6,6 +6,8 @@ body {
   color: #1f2328;
   background: #f6f7f9;
   line-height: 1.5;
+  /* 긴 단어(공백 없는 문자열)가 레이아웃을 밀어내지 않도록 기본 줄바꿈 허용 */
+  overflow-wrap: break-word;
 }
 a { color: #1a5fd0; text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -63,11 +65,14 @@ button:hover { background: #164fb0; }
 .product .thumb {
   width: 100%; height: 150px; object-fit: cover; background: #eef0f3;
 }
-.product .body { padding: 10px 12px; }
+.product .body { padding: 10px 12px; overflow-wrap: anywhere; word-break: break-word; }
 .product .price { font-weight: 700; }
 
 table { width: 100%; border-collapse: collapse; background: #fff; }
-th, td { padding: 8px 10px; border-bottom: 1px solid #e8eaed; text-align: left; font-size: .92rem; }
+th, td {
+  padding: 8px 10px; border-bottom: 1px solid #e8eaed; text-align: left; font-size: .92rem;
+  overflow-wrap: anywhere; word-break: break-word;
+}
 th { background: #f0f2f5; }
 
 .badge { padding: 2px 8px; border-radius: 999px; font-size: .78rem; }
@@ -76,7 +81,11 @@ th { background: #f0f2f5; }
 .badge.sold { background: #eceff3; color: #57606a; }
 
 .chat-log { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
-.msg { max-width: 70%; padding: 8px 12px; border-radius: 10px; background: #eceff3; }
+.msg {
+  max-width: 70%; padding: 8px 12px; border-radius: 10px; background: #eceff3;
+  /* 공백 없는 긴 문자열도 말풍선 안에서 강제로 줄바꿈(가로 넘침 방지) */
+  overflow-wrap: anywhere; word-break: break-word;
+}
 .msg.mine { align-self: flex-end; background: #dbeafe; }
 .msg .meta { font-size: .72rem; color: #6b7280; }
 
