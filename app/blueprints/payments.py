@@ -9,6 +9,7 @@
 """
 from flask import (
     Blueprint,
+    abort,
     flash,
     redirect,
     render_template,
@@ -96,66 +97,130 @@ def transfer():
     return render_template("payments/transfer.html")
 
 
-@bp.route("/pay/<int:user_id>", methods=("POST",))
+@bp.route("/buy/<int:product_id>", methods=("POST",))
 @login_required
-def pay(user_id):
-    """대화창에서 상대에게 바로 송금.
+def buy(product_id):
+    """상품을 그 상품 가격만큼 한 번에 결제한다(토스식 자동 결제).
 
-    - 수취인을 대화 상대(user_id)로 고정하므로 아이디를 따로 입력하지 않는다.
-    - 잔액이 부족하면 지갑 충전 화면으로 보낸다(부족분을 미리 채워 준다).
-    - 나머지 보안(비밀번호 재확인, 원자적 이체)은 일반 송금과 동일하다.
+    - 금액을 입력받지 않는다. 언제나 '상품 가격' 만큼만 빠진다.
+    - 잔액이 상품 가격 이상이면 결제하고 상품을 판매완료로 바꾼다.
+    - 부족하면 '잔액 부족'을 알리고 충전 화면으로 보낸다(부족분 자동 입력).
     """
     me = current_user()
-    back = url_for("chat.thread", user_id=user_id)
-
-    if rate_limit(f"transfer:{me['id']}", max_calls=10, per_seconds=60):
-        flash("송금 시도가 너무 잦습니다. 잠시 후 다시 시도하세요.")
-        return redirect(back)
-
-    password = request.form.get("password") or ""
-    try:
-        amount = validate_amount(request.form.get("amount"))
-        memo = validate_text(request.form.get("memo"), "transfer_memo", allow_empty=True)
-    except ValueError as exc:
-        flash(str(exc))
-        return redirect(back)
-
     db = get_db()
-    recipient = db.execute(
-        "SELECT id, status FROM users WHERE id = ?", (user_id,)
+    product = db.execute(
+        """SELECT p.id, p.title, p.price, p.seller_id, p.status
+           FROM products p WHERE p.id = ?""",
+        (product_id,),
     ).fetchone()
-    if recipient is None or recipient["status"] != "active":
-        flash("송금할 수 없는 상대입니다.")
-        return redirect(url_for("chat.inbox"))
-    if recipient["id"] == me["id"]:
-        flash("자기 자신에게는 송금할 수 없습니다.")
+    if product is None:
+        abort(404)
+
+    back = url_for("products.detail", product_id=product_id)
+
+    if rate_limit(f"transfer:{me['id']}", max_calls=15, per_seconds=60):
+        flash("결제 시도가 너무 잦습니다. 잠시 후 다시 시도하세요.")
         return redirect(back)
 
-    # 잔액이 부족하면 충전 화면으로 이동 (부족분을 미리 채워 준다)
-    if me["balance"] < amount:
-        shortfall = amount - me["balance"]
+    if product["seller_id"] == me["id"]:
+        flash("본인 상품은 구매할 수 없습니다.")
+        return redirect(back)
+    if product["status"] != "active":
+        flash("이미 판매되었거나 구매할 수 없는 상품입니다.")
+        return redirect(back)
+
+    price = product["price"]
+
+    # 사전 안내: 잔액이 상품 가격보다 적으면 충전 화면으로
+    if me["balance"] < price:
+        shortfall = price - me["balance"]
         flash(f"잔액이 부족합니다. {shortfall:,}원을 충전한 뒤 다시 결제해 주세요.")
         return redirect(url_for("payments.wallet", need=min(shortfall, 1_000_000)))
 
-    # 재인증: 비밀번호 확인
-    if not check_password_hash(me["password_hash"], password):
-        flash("비밀번호가 올바르지 않아 송금을 취소했습니다.")
-        return redirect(back)
+    # 원자적 결제 (경쟁 조건/중복 구매 방지)
+    status, message, shortfall = _do_purchase(me["id"], product_id)
+    if status == "insufficient":
+        flash(f"잔액이 부족합니다. {shortfall:,}원을 충전한 뒤 다시 결제해 주세요.")
+        return redirect(url_for("payments.wallet", need=min(shortfall, 1_000_000)))
 
-    ok, message = _do_transfer(me["id"], recipient["id"], amount, memo)
     flash(message)
-    if ok:
-        # 결제 사실을 대화에도 남겨 양쪽이 확인할 수 있게 한다.
-        note = f"[송금] {amount:,}원을 보냈습니다." + (f" ({memo})" if memo else "")
+    if status == "ok":
+        # 판매자에게 결제 사실을 대화로 알린다.
+        note = f"[결제] '{product['title']}' 상품을 {price:,}원에 결제했습니다."
         db.execute(
             "INSERT INTO messages (sender_id, receiver_id, body) VALUES (?, ?, ?)",
-            (me["id"], recipient["id"], note),
+            (me["id"], product["seller_id"], note),
         )
         db.commit()
-    elif "부족" in message:
-        # 읽기와 트랜잭션 사이에 잔액이 줄어든 경우도 충전 화면으로
         return redirect(url_for("payments.wallet"))
     return redirect(back)
+
+
+def _do_purchase(buyer_id, product_id):
+    """상품 가격만큼을 하나의 IMMEDIATE 트랜잭션에서 결제한다.
+
+    상품 상태 확인 → 잔액 확인 → 차감/증가 → 원장 기록 → 상품 판매완료를
+    한 번에 처리하므로, 동시에 두 명이 같은 상품을 사도 한 명만 성공한다.
+    반환: (상태, 사용자 메시지, 부족분)
+      상태 = 'ok' | 'insufficient' | 'unavailable' | 'error'
+    """
+    conn = get_write_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+
+        product = conn.execute(
+            "SELECT seller_id, price, status FROM products WHERE id = ?",
+            (product_id,),
+        ).fetchone()
+        if product is None or product["status"] != "active":
+            conn.execute("ROLLBACK")
+            return "unavailable", "이미 판매되었거나 구매할 수 없는 상품입니다.", 0
+
+        seller_id = product["seller_id"]
+        price = product["price"]
+        if seller_id == buyer_id:
+            conn.execute("ROLLBACK")
+            return "unavailable", "본인 상품은 구매할 수 없습니다.", 0
+
+        seller = conn.execute(
+            "SELECT status FROM users WHERE id = ?", (seller_id,)
+        ).fetchone()
+        if seller is None or seller["status"] != "active":
+            conn.execute("ROLLBACK")
+            return "unavailable", "판매자가 이용 제한 상태입니다.", 0
+
+        buyer = conn.execute(
+            "SELECT balance FROM users WHERE id = ?", (buyer_id,)
+        ).fetchone()
+        if buyer is None:
+            conn.execute("ROLLBACK")
+            return "error", "구매자 정보를 찾을 수 없습니다.", 0
+        if buyer["balance"] < price:
+            conn.execute("ROLLBACK")
+            return "insufficient", "잔액이 부족합니다.", price - buyer["balance"]
+
+        # 결제 진행. price 가 0(나눔)이면 금액 이동 없이 판매완료만 처리.
+        if price > 0:
+            conn.execute("UPDATE users SET balance = balance - ? WHERE id = ?",
+                         (price, buyer_id))
+            conn.execute("UPDATE users SET balance = balance + ? WHERE id = ?",
+                         (price, seller_id))
+            conn.execute(
+                """INSERT INTO transfers (sender_id, receiver_id, amount, memo)
+                   VALUES (?, ?, ?, ?)""",
+                (buyer_id, seller_id, price, f"상품 결제 #{product_id}"),
+            )
+        conn.execute("UPDATE products SET status = 'sold' WHERE id = ?", (product_id,))
+        conn.execute("COMMIT")
+        return "ok", f"{price:,}원 결제가 완료되었습니다.", 0
+    except Exception:
+        try:
+            conn.execute("ROLLBACK")
+        except Exception:
+            pass
+        return "error", "결제 처리 중 오류가 발생했습니다. 다시 시도해 주세요.", 0
+    finally:
+        conn.close()
 
 
 def _do_transfer(sender_id, receiver_id, amount, memo):

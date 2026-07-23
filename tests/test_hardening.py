@@ -257,63 +257,151 @@ def test_concurrent_transfers_no_double_spend(app):
     assert cnt == 1                            # 원장도 1건
 
 
-# --- 대화창 바로 결제 -----------------------------------------------------
-def test_chat_quick_pay_flow(app):
-    buyer = app.test_client()
-    register(buyer, "buyerx")
-    login(buyer, "buyerx")           # id 2 (admin=1)
+# --- 상품 가격만큼 자동 결제 ----------------------------------------------
+def _create_priced_product(client, price, title="상품"):
+    token = csrf_from(client, "/products/new")
+    client.post("/products/new", data={
+        "csrf_token": token, "title": title, "description": "설명", "price": str(price),
+    }, follow_redirects=True)
+
+
+def _balance(app, username):
+    conn = sqlite3.connect(app.config["DATABASE"])
+    v = conn.execute("SELECT balance FROM users WHERE username=?", (username,)).fetchone()[0]
+    conn.close()
+    return v
+
+
+def _pstatus(app, pid):
+    conn = sqlite3.connect(app.config["DATABASE"])
+    v = conn.execute("SELECT status FROM products WHERE id=?", (pid,)).fetchone()[0]
+    conn.close()
+    return v
+
+
+def test_purchase_charges_exactly_product_price(app):
     seller = app.test_client()
-    register(seller, "sellerx")      # id 3
+    register(seller, "seller9"); login(seller, "seller9")
+    _create_priced_product(seller, 134, "싼물건")     # product id 1
 
-    # 잔액 0 -> 결제 시 충전 화면으로 이동
-    r = buyer.post("/wallet/pay/3", data={
-        "csrf_token": csrf_from(buyer, "/chat/3"),
-        "amount": "1000", "memo": "", "password": "Passw0rd!",
-    }, follow_redirects=False)
-    assert r.status_code == 302
-    assert "/wallet" in r.headers["Location"]
-
-    # 충전 후 결제 성공
+    buyer = app.test_client()
+    register(buyer, "buyer9"); login(buyer, "buyer9")
     buyer.post("/wallet/topup", data={
-        "csrf_token": csrf_from(buyer, "/wallet/"), "amount": "5000"},
+        "csrf_token": csrf_from(buyer, "/wallet/"), "amount": "10000"},
         follow_redirects=True)
-    r = buyer.post("/wallet/pay/3", data={
-        "csrf_token": csrf_from(buyer, "/chat/3"),
-        "amount": "1500", "memo": "책값", "password": "Passw0rd!",
-    }, follow_redirects=True)
-    assert "송금했습니다" in r.get_data(as_text=True)
 
-    conn = sqlite3.connect(app.config["DATABASE"])
-    b = conn.execute("SELECT balance FROM users WHERE username='buyerx'").fetchone()[0]
-    s = conn.execute("SELECT balance FROM users WHERE username='sellerx'").fetchone()[0]
-    note = conn.execute(
-        "SELECT COUNT(*) FROM messages WHERE body LIKE '[송금]%'").fetchone()[0]
-    conn.close()
-    assert b == 3500 and s == 1500     # 잔액 정확히 이동
-    assert note == 1                   # 대화에 결제 내역 남음
+    r = buyer.post("/wallet/buy/1", data={
+        "csrf_token": csrf_from(buyer, "/wallet/")}, follow_redirects=True)
+    assert "결제가 완료" in r.get_data(as_text=True)
 
-    # 비밀번호 틀리면 송금 취소
-    r = buyer.post("/wallet/pay/3", data={
-        "csrf_token": csrf_from(buyer, "/chat/3"),
-        "amount": "100", "memo": "", "password": "WrongPw123",
-    }, follow_redirects=True)
-    assert "올바르지 않아" in r.get_data(as_text=True)
-
-    conn = sqlite3.connect(app.config["DATABASE"])
-    b2 = conn.execute("SELECT balance FROM users WHERE username='buyerx'").fetchone()[0]
-    conn.close()
-    assert b2 == 3500                  # 잔액 변화 없음
+    # 1만원 넣어도 딱 134원만 빠져야 한다
+    assert _balance(app, "buyer9") == 10000 - 134
+    assert _balance(app, "seller9") == 134
+    assert _pstatus(app, 1) == "sold"
 
 
-def test_chat_quick_pay_rejects_self(app):
-    c = app.test_client()
-    register(c, "selfpay")
-    login(c, "selfpay")              # id 2
-    r = c.post("/wallet/pay/2", data={
-        "csrf_token": csrf_from(c, "/wallet/"),
-        "amount": "100", "memo": "", "password": "Passw0rd!",
-    }, follow_redirects=True)
-    assert "자기 자신" in r.get_data(as_text=True)
+def test_purchase_insufficient_goes_to_topup(app):
+    seller = app.test_client()
+    register(seller, "seller10"); login(seller, "seller10")
+    _create_priced_product(seller, 5000, "비싼물건")   # id 1
+
+    buyer = app.test_client()
+    register(buyer, "buyer10"); login(buyer, "buyer10")   # 잔액 0
+
+    r = buyer.post("/wallet/buy/1", data={
+        "csrf_token": csrf_from(buyer, "/wallet/")}, follow_redirects=False)
+    assert r.status_code == 302
+    assert "/wallet" in r.headers["Location"]      # 충전 화면으로 이동
+    assert _balance(app, "buyer10") == 0           # 잔액 변화 없음
+    assert _pstatus(app, 1) == "active"            # 상품 그대로
+
+
+def test_cannot_buy_own_product(app):
+    seller = app.test_client()
+    register(seller, "owner9"); login(seller, "owner9")
+    _create_priced_product(seller, 100, "내물건")     # id 1
+    seller.post("/wallet/topup", data={
+        "csrf_token": csrf_from(seller, "/wallet/"), "amount": "1000"},
+        follow_redirects=True)
+    r = seller.post("/wallet/buy/1", data={
+        "csrf_token": csrf_from(seller, "/wallet/")}, follow_redirects=True)
+    assert "본인 상품" in r.get_data(as_text=True)
+    assert _pstatus(app, 1) == "active"
+
+
+def test_cannot_buy_already_sold_product(app):
+    seller = app.test_client()
+    register(seller, "seller11"); login(seller, "seller11")
+    _create_priced_product(seller, 100, "한정판")     # id 1
+
+    b1 = app.test_client()
+    register(b1, "buyerA"); login(b1, "buyerA")
+    b1.post("/wallet/topup", data={
+        "csrf_token": csrf_from(b1, "/wallet/"), "amount": "1000"}, follow_redirects=True)
+    b2 = app.test_client()
+    register(b2, "buyerB"); login(b2, "buyerB")
+    b2.post("/wallet/topup", data={
+        "csrf_token": csrf_from(b2, "/wallet/"), "amount": "1000"}, follow_redirects=True)
+
+    b1.post("/wallet/buy/1", data={"csrf_token": csrf_from(b1, "/wallet/")},
+            follow_redirects=True)
+    r = b2.post("/wallet/buy/1", data={"csrf_token": csrf_from(b2, "/wallet/")},
+                follow_redirects=True)
+    assert "이미 판매" in r.get_data(as_text=True)
+    assert _balance(app, "buyerB") == 1000    # 두 번째 구매자는 돈이 안 빠짐
+    assert _balance(app, "seller11") == 100   # 판매자는 한 번만 받음
+
+
+def test_concurrent_purchase_single_winner(app):
+    """세 명이 동시에 같은 상품을 결제해도 한 명만 성공하고,
+    판매자는 상품 가격을 한 번만 받아야 한다(중복 판매 방지)."""
+    import threading
+    from app.blueprints.payments import _do_purchase
+    from app.db import get_write_connection
+
+    with app.app_context():
+        db = get_write_connection()
+        db.execute("INSERT INTO users (username,password_hash,display_name,balance)"
+                   " VALUES ('cpsel','x','cpsel',0)")
+        sid = db.execute("SELECT id FROM users WHERE username='cpsel'").fetchone()[0]
+        db.execute("INSERT INTO products (seller_id,title,description,price,status)"
+                   " VALUES (?,?,?,?, 'active')", (sid, "race", "d", 100))
+        pid = db.execute("SELECT id FROM products WHERE title='race'").fetchone()[0]
+        buyers = []
+        for name in ("cpb1", "cpb2", "cpb3"):
+            db.execute("INSERT INTO users (username,password_hash,display_name,balance)"
+                       " VALUES (?,?,?,1000)", (name, "x", name))
+            buyers.append(
+                db.execute("SELECT id FROM users WHERE username=?", (name,)).fetchone()[0])
+        db.close()
+
+    results = []
+    lock = threading.Lock()
+
+    def worker(bid):
+        with app.app_context():
+            status, _, _ = _do_purchase(bid, pid)
+        with lock:
+            results.append(status)
+
+    threads = [threading.Thread(target=worker, args=(b,)) for b in buyers]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    with app.app_context():
+        db = get_write_connection()
+        st = db.execute("SELECT status FROM products WHERE id=?", (pid,)).fetchone()[0]
+        sbal = db.execute("SELECT balance FROM users WHERE id=?", (sid,)).fetchone()[0]
+        ledger = db.execute("SELECT COUNT(*) FROM transfers WHERE receiver_id=?",
+                            (sid,)).fetchone()[0]
+        db.close()
+
+    assert results.count("ok") == 1     # 정확히 한 명만 성공
+    assert st == "sold"
+    assert sbal == 100                  # 판매자는 한 번만 받음
+    assert ledger == 1                  # 원장도 1건
 
 
 # --- 금액 파서 엄격성(단위 테스트) ----------------------------------------
