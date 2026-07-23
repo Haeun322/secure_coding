@@ -3,7 +3,7 @@
 - 과목: WhiteHat School — Secure Coding
 - 프로젝트: Tiny Second-hand Shopping Platform
 - 작성일: 2026-07-24
-- GitHub: https://github.com/<본인계정>/secure-marketplace  *(제출 전 실제 저장소 주소로 교체)*
+- GitHub: https://github.com/Haeun322/secure_coding
 
 ---
 

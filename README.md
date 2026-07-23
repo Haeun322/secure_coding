@@ -34,8 +34,8 @@
 ### 1) 소스 내려받기
 
 ```bash
-git clone https://github.com/<your-account>/secure-marketplace.git
-cd secure-marketplace
+git clone https://github.com/Haeun322/secure_coding.git
+cd secure_coding
 ```
 
 ### 2) 가상환경 만들기 (권장)
