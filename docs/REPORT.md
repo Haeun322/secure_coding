@@ -95,8 +95,10 @@ app/
   blueprints/
     main / auth / products / chat / payments / reports / admin
   templates/       Jinja2 (자동 이스케이프)
-  static/style.css
-tests/             pytest 통합 테스트
+  static/          style.css, app.js
+tests/
+  test_app.py      기본 기능·보안 테스트
+  test_hardening.py 2차 검증 회귀 테스트
 ```
 
 보안 관련 코드를 `security.py`, `validators.py` 두 곳에 몰아둔 건 의도적이다.
