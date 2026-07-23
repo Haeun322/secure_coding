@@ -147,8 +147,8 @@ def buy(product_id):
         note = (f"[결제 보류] '{product['title']}' 상품을 {price:,}원에 결제했습니다. "
                 "물건을 받은 뒤 구매 확정을 눌러 주세요.")
         db.execute(
-            "INSERT INTO messages (sender_id, receiver_id, body) VALUES (?, ?, ?)",
-            (me["id"], product["seller_id"], note),
+            "INSERT INTO messages (product_id, sender_id, receiver_id, body) VALUES (?, ?, ?, ?)",
+            (product_id, me["id"], product["seller_id"], note),
         )
         db.commit()
     return redirect(back)

@@ -83,15 +83,18 @@ CREATE TABLE IF NOT EXISTS reviews (
 );
 CREATE INDEX IF NOT EXISTS idx_reviews_target ON reviews(target_id);
 
--- 1:1 메시지 ---------------------------------------------------------------
+-- 상품별 1:1 메시지 --------------------------------------------------------
+-- 대화는 '상품' 단위로 나뉜다. 같은 상대라도 상품이 다르면 다른 대화방이다.
 CREATE TABLE IF NOT EXISTS messages (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id  INTEGER REFERENCES products(id) ON DELETE CASCADE,
     sender_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     receiver_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     body        TEXT    NOT NULL,
     created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_messages_pair ON messages(sender_id, receiver_id, created_at);
+-- idx_messages_product 는 product_id 컬럼 추가 후 db._migrate 에서 만든다.
 
 -- 송금 원장 ----------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS transfers (

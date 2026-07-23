@@ -117,7 +117,7 @@
           <button type="submit">{% if product['price'] > 0 %}{{ '{:,}'.format(product['price']) }}원 결제하기{% else %}무료로 받기{% endif %}</button>
         </form>
       {% endif %}
-      <a href="{{ url_for('chat.thread', user_id=product['seller_id']) }}"><button type="button">판매자와 대화</button></a>
+      <a href="{{ url_for('chat.thread', product_id=product['id'], peer_id=product['seller_id']) }}"><button type="button">판매자와 대화</button></a>
       <a href="{{ url_for('reports.create', target_type='product', target_id=product['id']) }}"><button type="button" class="danger">상품 신고</button></a>
     {% else %}
       <a href="{{ url_for('auth.login') }}"><button type="button">로그인 후 구매</button></a>

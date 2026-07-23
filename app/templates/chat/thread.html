@@ -2,6 +2,9 @@
 {% block title %}{{ other['display_name'] }} 님과의 대화{% endblock %}
 {% block content %}
 <h1>{{ other['display_name'] }} 님과의 대화</h1>
+<p class="muted">상품:
+  <a href="{{ url_for('products.detail', product_id=product['id']) }}">{{ product['title'] }}</a>
+</p>
 
 <div class="card">
   <div class="chat-log">
@@ -15,7 +18,7 @@
     {% endfor %}
   </div>
 
-  <form method="post" action="{{ url_for('chat.thread', user_id=other['id']) }}">
+  <form method="post" action="{{ url_for('chat.thread', product_id=product['id'], peer_id=other['id']) }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="form-row">
       <textarea name="body" required maxlength="1000" placeholder="메시지 입력" class="ta-sm"></textarea>

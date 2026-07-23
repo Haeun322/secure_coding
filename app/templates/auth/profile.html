@@ -14,9 +14,9 @@
   {% if profile['bio'] %}<p>{{ profile['bio'] }}</p>{% endif %}
   {% if current_user and current_user['id'] != profile['id'] %}
     <div class="actions">
-      <a href="{{ url_for('chat.thread', user_id=profile['id']) }}"><button type="button">메시지 보내기</button></a>
       <a href="{{ url_for('reports.create', target_type='user', target_id=profile['id']) }}"><button type="button" class="danger">신고</button></a>
     </div>
+    <p class="muted">대화는 상품 상세의 "판매자와 대화"에서 시작할 수 있습니다.</p>
   {% endif %}
 </div>
 

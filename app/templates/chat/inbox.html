@@ -6,10 +6,13 @@
   <div class="card">
     {% for c in conversations %}
       <p>
-        <a href="{{ url_for('chat.thread', user_id=c['other_id']) }}">
-          <strong>{{ c['other_name'] }}</strong>
+        <a href="{{ url_for('chat.thread', product_id=c['product_id'], peer_id=c['other_id']) }}">
+          <strong>{{ c['product_title'] }}</strong>
         </a>
-        — <span class="muted">{{ c['last_body'][:40] }}</span>
+        <span class="muted">· {{ c['other_name'] }}</span>
+        {% if c['product_status'] == 'sold' %}<span class="badge sold">거래완료</span>{% endif %}
+        <br>
+        <span class="muted">{{ c['last_body'][:40] }}</span>
         <br><small class="muted">{{ c['last_at'] }}</small>
       </p>
     {% endfor %}

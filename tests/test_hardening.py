@@ -492,6 +492,50 @@ def test_category_filter_and_sort(app):
     assert r3.index("청바지") < r3.index("노트북")
 
 
+# --- 상품별 대화 분리 -----------------------------------------------------
+def test_chat_is_separated_per_product(app):
+    seller = app.test_client()
+    register(seller, "chsell"); login(seller, "chsell")   # id 2
+    _create_priced_product(seller, 100, "상품일")          # id 1
+    _create_priced_product(seller, 200, "상품이")          # id 2
+    buyer = app.test_client()
+    register(buyer, "chbuy"); login(buyer, "chbuy")        # id 3
+
+    # 같은 판매자(2)의 서로 다른 상품에 각각 문의
+    buyer.post("/chat/1/2", data={"csrf_token": csrf_from(buyer, "/wallet/"),
+                                  "body": "상품일 문의"}, follow_redirects=True)
+    buyer.post("/chat/2/2", data={"csrf_token": csrf_from(buyer, "/wallet/"),
+                                  "body": "상품이 문의"}, follow_redirects=True)
+
+    # 상품1 대화방에는 상품1 메시지만, 상품2 메시지는 섞이지 않아야 한다
+    t1 = buyer.get("/chat/1/2").get_data(as_text=True)
+    assert "상품일 문의" in t1 and "상품이 문의" not in t1
+    t2 = buyer.get("/chat/2/2").get_data(as_text=True)
+    assert "상품이 문의" in t2 and "상품일 문의" not in t2
+
+    # 목록에는 두 개의 상품별 대화가 따로 보인다
+    inbox = buyer.get("/chat/").get_data(as_text=True)
+    assert "상품일" in inbox and "상품이" in inbox
+
+
+def test_chat_third_party_cannot_read(app):
+    seller = app.test_client()
+    register(seller, "idsell"); login(seller, "idsell")    # id 2
+    _create_priced_product(seller, 100, "비밀상품")         # id 1
+    buyer = app.test_client()
+    register(buyer, "idbuy"); login(buyer, "idbuy")        # id 3
+    buyer.post("/chat/1/2", data={"csrf_token": csrf_from(buyer, "/wallet/"),
+                                  "body": "비밀문의"}, follow_redirects=True)
+
+    third = app.test_client()
+    register(third, "idthird"); login(third, "idthird")    # id 4
+    # 제3자가 구매자의 대화(상품1/구매자3)를 열람 시도 -> 403
+    assert third.get("/chat/1/3").status_code == 403
+    # 제3자가 판매자와 새 대화를 열어도, 남의 대화 내용은 안 보인다
+    r = third.get("/chat/1/2").get_data(as_text=True)
+    assert "비밀문의" not in r
+
+
 # --- 금액 파서 엄격성(단위 테스트) ----------------------------------------
 def test_amount_parser_strictness():
     from app.validators import validate_amount

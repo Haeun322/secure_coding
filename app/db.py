@@ -77,6 +77,12 @@ def _migrate(db):
     # category 컬럼이 확실히 있는 지금 시점에 인덱스를 만든다.
     db.execute("CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)")
 
+    # 메시지에 product_id 추가(상품별 대화). 기존 메시지는 product_id NULL 로 남는다.
+    message_cols = {row["name"] for row in db.execute("PRAGMA table_info(messages)")}
+    if "product_id" not in message_cols:
+        db.execute("ALTER TABLE messages ADD COLUMN product_id INTEGER")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_messages_product ON messages(product_id)")
+
 
 def init_app(app):
     """앱 종료 시 연결을 닫도록 등록."""
