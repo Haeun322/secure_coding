@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ other['display_name'] }} 님과의 대화{% endblock %}
+{% block content %}
+<h1>{{ other['display_name'] }} 님과의 대화</h1>
+
+<div class="card">
+  <div class="chat-log">
+    {% for m in messages %}
+      <div class="msg {% if m['sender_id'] == me_id %}mine{% endif %}">
+        <div>{{ m['body'] }}</div>
+        <div class="meta">{{ m['created_at'] }}</div>
+      </div>
+    {% else %}
+      <p class="muted">첫 메시지를 보내 보세요.</p>
+    {% endfor %}
+  </div>
+
+  <form method="post" action="{{ url_for('chat.thread', user_id=other['id']) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="form-row">
+      <textarea name="body" required maxlength="1000" placeholder="메시지 입력" style="min-height:70px;"></textarea>
+    </div>
+    <button type="submit">보내기</button>
+  </form>
+</div>
+{% endblock %}

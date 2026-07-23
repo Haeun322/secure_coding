@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}{{ profile['display_name'] }} 님의 프로필{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>{{ profile['display_name'] }}</h1>
+  <p class="muted">@{{ profile['username'] }} · 가입일 {{ profile['created_at'] }}</p>
+  {% if profile['bio'] %}<p>{{ profile['bio'] }}</p>{% endif %}
+  {% if current_user and current_user['id'] != profile['id'] %}
+    <div class="actions">
+      <a href="{{ url_for('chat.thread', user_id=profile['id']) }}"><button type="button">메시지 보내기</button></a>
+      <a href="{{ url_for('reports.create', target_type='user', target_id=profile['id']) }}"><button type="button" class="danger">신고</button></a>
+    </div>
+  {% endif %}
+</div>
+
+<h2>판매 중인 상품</h2>
+{% if products %}
+  <div class="grid">
+    {% for p in products %}
+      <a class="product" href="{{ url_for('products.detail', product_id=p['id']) }}">
+        {% if p['image_path'] %}
+          <img class="thumb" src="{{ url_for('products.image', filename=p['image_path']) }}" alt="상품 이미지">
+        {% else %}<div class="thumb"></div>{% endif %}
+        <div class="body">
+          <div>{{ p['title'] }}</div>
+          <div class="price">{{ '{:,}'.format(p['price']) }}원</div>
+          {% if p['status'] == 'sold' %}<span class="badge sold">판매완료</span>{% endif %}
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+{% else %}
+  <p class="muted">등록한 상품이 없습니다.</p>
+{% endif %}
+{% endblock %}

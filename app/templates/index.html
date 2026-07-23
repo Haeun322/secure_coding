@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}중고마켓 — 홈{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>중고거래 플랫폼</h1>
+  <p class="muted">회원가입 후 상품을 등록하고, 사용자와 대화하며, 안전하게 송금할 수 있습니다.</p>
+</div>
+
+<h2>최근 상품</h2>
+{% if products %}
+  <div class="grid">
+    {% for p in products %}
+      <a class="product" href="{{ url_for('products.detail', product_id=p['id']) }}">
+        {% if p['image_path'] %}
+          <img class="thumb" src="{{ url_for('products.image', filename=p['image_path']) }}" alt="상품 이미지">
+        {% else %}
+          <div class="thumb"></div>
+        {% endif %}
+        <div class="body">
+          <div>{{ p['title'] }}</div>
+          <div class="price">{{ '{:,}'.format(p['price']) }}원</div>
+          <div class="muted">{{ p['seller_name'] }}</div>
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+{% else %}
+  <p class="muted">아직 등록된 상품이 없습니다.</p>
+{% endif %}
+{% endblock %}

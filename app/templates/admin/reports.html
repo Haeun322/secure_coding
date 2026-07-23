@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}신고 처리{% endblock %}
+{% block content %}
+<h1>신고 처리</h1>
+<table>
+  <thead><tr><th>ID</th><th>신고자</th><th>대상</th><th>사유</th><th>상태</th><th>일시</th><th>조치</th></tr></thead>
+  <tbody>
+    {% for r in reports %}
+      <tr>
+        <td>{{ r['id'] }}</td>
+        <td>{{ r['reporter_name'] }}</td>
+        <td>
+          {% if r['target_type'] == 'user' %}
+            사용자 <a href="{{ url_for('auth.profile', user_id=r['target_id']) }}">#{{ r['target_id'] }}</a>
+          {% else %}
+            상품 <a href="{{ url_for('products.detail', product_id=r['target_id']) }}">#{{ r['target_id'] }}</a>
+          {% endif %}
+        </td>
+        <td>{{ r['reason'] }}</td>
+        <td>
+          {% if r['status'] == 'open' %}<span class="badge blocked">미처리</span>
+          {% else %}<span class="badge active">{{ r['status'] }}</span>{% endif %}
+        </td>
+        <td>{{ r['created_at'] }}</td>
+        <td>
+          {% if r['status'] == 'open' %}
+            <form method="post" action="{{ url_for('admin.resolve_report', report_id=r['id']) }}" class="inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="decision" value="resolved">
+              <button type="submit">처리완료</button>
+            </form>
+            <form method="post" action="{{ url_for('admin.resolve_report', report_id=r['id']) }}" class="inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="decision" value="dismissed">
+              <button type="submit" class="danger">기각</button>
+            </form>
+          {% else %}<span class="muted">—</span>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

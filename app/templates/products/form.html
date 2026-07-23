@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}{% if editing %}상품 수정{% else %}상품 등록{% endif %}{% endblock %}
+{% block content %}
+<div class="card" style="max-width:560px;margin:0 auto;">
+  <h1>{% if editing %}상품 수정{% else %}상품 등록{% endif %}</h1>
+  <form method="post" enctype="multipart/form-data"
+        action="{% if editing %}{{ url_for('products.edit', product_id=product['id']) }}{% else %}{{ url_for('products.create') }}{% endif %}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="form-row">
+      <label for="title">제목</label>
+      <input id="title" name="title" required maxlength="100"
+             value="{{ form.title if form else (product['title'] if product else '') }}">
+    </div>
+    <div class="form-row">
+      <label for="price">가격(원)</label>
+      <input id="price" name="price" type="number" min="0" step="1" required
+             value="{{ form.price if form else (product['price'] if product else '') }}">
+    </div>
+    <div class="form-row">
+      <label for="description">설명</label>
+      <textarea id="description" name="description" required maxlength="2000">{{ form.description if form else (product['description'] if product else '') }}</textarea>
+    </div>
+    <div class="form-row">
+      <label for="image">이미지 (선택, png/jpg/gif/webp, 최대 5MB)</label>
+      <input id="image" name="image" type="file" accept="image/png,image/jpeg,image/gif,image/webp">
+    </div>
+    {% if editing %}
+    <div class="form-row">
+      <label for="status">상태</label>
+      <select id="status" name="status">
+        <option value="active" {% if product['status'] == 'active' %}selected{% endif %}>판매중</option>
+        <option value="sold" {% if product['status'] == 'sold' %}selected{% endif %}>판매완료</option>
+      </select>
+    </div>
+    {% endif %}
+    <button type="submit">{% if editing %}수정 저장{% else %}등록{% endif %}</button>
+  </form>
+</div>
+{% endblock %}

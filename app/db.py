@@ -1,0 +1,60 @@
+"""SQLite 연결 관리.
+
+모든 쿼리는 이 모듈이 돌려주는 connection 을 통해 파라미터 바인딩(?)으로만
+실행한다. 문자열 포매팅으로 SQL 을 만드는 코드는 프로젝트 어디에도 두지 않는다.
+이것이 SQL Injection 을 막는 1차 방어선이다.
+"""
+import os
+import sqlite3
+
+from flask import current_app, g
+
+
+def get_db():
+    """요청 컨텍스트당 하나의 연결을 재사용한다."""
+    if "db" not in g:
+        g.db = sqlite3.connect(
+            current_app.config["DATABASE"],
+            detect_types=sqlite3.PARSE_DECLTYPES,
+        )
+        g.db.row_factory = sqlite3.Row          # 컬럼명을 키로 접근 가능
+        g.db.execute("PRAGMA foreign_keys = ON")  # 외래키 제약 활성화(기본은 꺼짐)
+    return g.db
+
+
+def close_db(exception=None):
+    db = g.pop("db", None)
+    if db is not None:
+        db.close()
+
+
+def get_write_connection():
+    """송금처럼 원자성이 중요한 작업 전용 연결.
+
+    isolation_level=None(자동커밋)으로 열어 BEGIN IMMEDIATE ~ COMMIT 을 직접 제어한다.
+    busy_timeout 을 줘서 동시 송금이 겹치면 오류 대신 잠시 대기하도록 한다.
+    요청용 g.db 와 분리해 트랜잭션 경계를 명확히 한다.
+    """
+    conn = sqlite3.connect(
+        current_app.config["DATABASE"],
+        isolation_level=None,
+        timeout=10,
+    )
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 5000")
+    return conn
+
+
+def init_db():
+    """스키마를 적용한다. 이미 있으면 IF NOT EXISTS 로 넘어간다."""
+    db = get_db()
+    schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
+    with open(schema_path, "r", encoding="utf-8") as fh:
+        db.executescript(fh.read())
+    db.commit()
+
+
+def init_app(app):
+    """앱 종료 시 연결을 닫도록 등록."""
+    app.teardown_appcontext(close_db)

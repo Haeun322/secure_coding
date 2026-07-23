@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}메시지{% endblock %}
+{% block content %}
+<h1>메시지</h1>
+{% if conversations %}
+  <div class="card">
+    {% for c in conversations %}
+      <p>
+        <a href="{{ url_for('chat.thread', user_id=c['other_id']) }}">
+          <strong>{{ c['other_name'] }}</strong>
+        </a>
+        — <span class="muted">{{ c['last_body'][:40] }}</span>
+        <br><small class="muted">{{ c['last_at'] }}</small>
+      </p>
+    {% endfor %}
+  </div>
+{% else %}
+  <p class="muted">아직 주고받은 메시지가 없습니다. 상품 상세에서 판매자에게 말을 걸어 보세요.</p>
+{% endif %}
+{% endblock %}

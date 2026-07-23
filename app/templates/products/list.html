@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}{% if q %}"{{ q }}" 검색 결과{% else %}상품 목록{% endif %}{% endblock %}
+{% block content %}
+<h1>{% if q %}"{{ q }}" 검색 결과{% else %}전체 상품{% endif %}</h1>
+{% if products %}
+  <div class="grid">
+    {% for p in products %}
+      <a class="product" href="{{ url_for('products.detail', product_id=p['id']) }}">
+        {% if p['image_path'] %}
+          <img class="thumb" src="{{ url_for('products.image', filename=p['image_path']) }}" alt="상품 이미지">
+        {% else %}<div class="thumb"></div>{% endif %}
+        <div class="body">
+          <div>{{ p['title'] }}</div>
+          <div class="price">{{ '{:,}'.format(p['price']) }}원</div>
+          <div class="muted">{{ p['seller_name'] }}</div>
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+{% else %}
+  <p class="muted">해당하는 상품이 없습니다.</p>
+{% endif %}
+{% endblock %}

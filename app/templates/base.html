@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}중고마켓{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="{{ url_for('main.index') }}">🛒 중고마켓</a>
+  <form class="search" action="{{ url_for('products.listing') }}" method="get">
+    <input type="search" name="q" placeholder="상품 검색" value="{{ request.args.get('q', '') }}">
+    <button type="submit">검색</button>
+  </form>
+  <nav>
+    {% if current_user %}
+      <a href="{{ url_for('products.create') }}">상품등록</a>
+      <a href="{{ url_for('chat.inbox') }}">메시지</a>
+      <a href="{{ url_for('payments.wallet') }}">지갑</a>
+      <a href="{{ url_for('auth.me') }}">{{ current_user['display_name'] }}</a>
+      {% if current_user['role'] == 'admin' %}
+        <a class="admin-link" href="{{ url_for('admin.dashboard') }}">관리자</a>
+      {% endif %}
+      <form action="{{ url_for('auth.logout') }}" method="post" class="inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="linkbtn">로그아웃</button>
+      </form>
+    {% else %}
+      <a href="{{ url_for('auth.login') }}">로그인</a>
+      <a href="{{ url_for('auth.register') }}">회원가입</a>
+    {% endif %}
+  </nav>
+</header>
+
+<main class="container">
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      <ul class="flash">
+        {% for m in messages %}<li>{{ m }}</li>{% endfor %}
+      </ul>
+    {% endif %}
+  {% endwith %}
+
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="foot">
+  <small>보안 프로그래밍 과제 — 중고거래 플랫폼</small>
+</footer>
+</body>
+</html>

@@ -1,0 +1,86 @@
+/* 간결한 기능 위주 스타일. 외부 CDN 없이 자체 CSS 만 사용(CSP self 준수). */
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: system-ui, "Segoe UI", "Malgun Gothic", sans-serif;
+  color: #1f2328;
+  background: #f6f7f9;
+  line-height: 1.5;
+}
+a { color: #1a5fd0; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.topbar {
+  display: flex; align-items: center; gap: 14px;
+  padding: 10px 18px; background: #fff; border-bottom: 1px solid #e2e5e9;
+  flex-wrap: wrap;
+}
+.brand { font-weight: 700; font-size: 1.15rem; }
+.topbar .search { display: flex; gap: 6px; flex: 1; min-width: 180px; }
+.topbar .search input { flex: 1; }
+.topbar nav { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.admin-link { color: #b3261e; font-weight: 600; }
+
+.container { max-width: 940px; margin: 22px auto; padding: 0 16px; }
+.foot { text-align: center; color: #8a9099; padding: 24px; }
+
+input, textarea, select, button {
+  font: inherit; padding: 8px 10px; border: 1px solid #ccd1d7; border-radius: 6px;
+}
+textarea { width: 100%; min-height: 120px; }
+button {
+  background: #1a5fd0; color: #fff; border-color: #1a5fd0; cursor: pointer;
+}
+button:hover { background: #164fb0; }
+.linkbtn { background: none; border: none; color: #1a5fd0; padding: 0; }
+.linkbtn:hover { text-decoration: underline; background: none; }
+.inline { display: inline; }
+.danger { background: #b3261e; border-color: #b3261e; }
+.danger:hover { background: #8f1e18; }
+.muted { color: #6b7280; }
+
+.flash { list-style: none; padding: 0; margin: 0 0 16px; }
+.flash li {
+  background: #fff8e1; border: 1px solid #f2d675; padding: 10px 12px;
+  border-radius: 6px; margin-bottom: 6px;
+}
+
+.card {
+  background: #fff; border: 1px solid #e2e5e9; border-radius: 10px;
+  padding: 18px; margin-bottom: 16px;
+}
+.form-row { margin-bottom: 12px; display: flex; flex-direction: column; gap: 4px; }
+.form-row label { font-weight: 600; font-size: .92rem; }
+
+.grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+}
+.product {
+  background: #fff; border: 1px solid #e2e5e9; border-radius: 10px; overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.product .thumb {
+  width: 100%; height: 150px; object-fit: cover; background: #eef0f3;
+}
+.product .body { padding: 10px 12px; }
+.product .price { font-weight: 700; }
+
+table { width: 100%; border-collapse: collapse; background: #fff; }
+th, td { padding: 8px 10px; border-bottom: 1px solid #e8eaed; text-align: left; font-size: .92rem; }
+th { background: #f0f2f5; }
+
+.badge { padding: 2px 8px; border-radius: 999px; font-size: .78rem; }
+.badge.active { background: #e3f4e8; color: #1a7f37; }
+.badge.blocked { background: #fbe3e1; color: #b3261e; }
+.badge.sold { background: #eceff3; color: #57606a; }
+
+.chat-log { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.msg { max-width: 70%; padding: 8px 12px; border-radius: 10px; background: #eceff3; }
+.msg.mine { align-self: flex-end; background: #dbeafe; }
+.msg .meta { font-size: .72rem; color: #6b7280; }
+
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.stat { background: #fff; border: 1px solid #e2e5e9; border-radius: 10px; padding: 16px; }
+.stat .num { font-size: 1.6rem; font-weight: 700; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }

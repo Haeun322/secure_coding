@@ -1,0 +1,3 @@
+# 개발/테스트용 추가 의존성
+-r requirements.txt
+pytest==9.1.1

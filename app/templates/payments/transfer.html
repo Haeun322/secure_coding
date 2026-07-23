@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}송금{% endblock %}
+{% block content %}
+<div class="card" style="max-width:460px;margin:0 auto;">
+  <h1>송금</h1>
+  <form method="post" action="{{ url_for('payments.transfer') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="form-row">
+      <label for="recipient">받는 사람 (아이디)</label>
+      <input id="recipient" name="recipient" required
+             value="{{ form.recipient if form else '' }}">
+    </div>
+    <div class="form-row">
+      <label for="amount">금액(원)</label>
+      <input id="amount" name="amount" type="number" min="1" step="1" required
+             value="{{ form.amount if form else '' }}">
+    </div>
+    <div class="form-row">
+      <label for="memo">메모 (선택)</label>
+      <input id="memo" name="memo" maxlength="100" value="{{ form.memo if form else '' }}">
+    </div>
+    <div class="form-row">
+      <label for="password">비밀번호 확인</label>
+      <input id="password" name="password" type="password" required autocomplete="current-password">
+      <small class="muted">본인 확인을 위해 비밀번호를 다시 입력합니다.</small>
+    </div>
+    <button type="submit">송금</button>
+  </form>
+</div>
+{% endblock %}

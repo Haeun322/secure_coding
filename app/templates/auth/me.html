@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}내 정보{% endblock %}
+{% block content %}
+<h1>내 정보</h1>
+
+<div class="card">
+  <h2>프로필</h2>
+  <p class="muted">아이디: {{ user['username'] }}</p>
+  <form method="post" action="{{ url_for('auth.me') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" value="profile">
+    <div class="form-row">
+      <label for="display_name">표시 이름</label>
+      <input id="display_name" name="display_name" value="{{ user['display_name'] }}"
+             required maxlength="30">
+    </div>
+    <div class="form-row">
+      <label for="bio">소개</label>
+      <textarea id="bio" name="bio" maxlength="300">{{ user['bio'] }}</textarea>
+    </div>
+    <button type="submit">프로필 저장</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>비밀번호 변경</h2>
+  <form method="post" action="{{ url_for('auth.me') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" value="password">
+    <div class="form-row">
+      <label for="current_password">현재 비밀번호</label>
+      <input id="current_password" name="current_password" type="password" required
+             autocomplete="current-password">
+    </div>
+    <div class="form-row">
+      <label for="new_password">새 비밀번호</label>
+      <input id="new_password" name="new_password" type="password" required
+             minlength="8" maxlength="128" autocomplete="new-password">
+    </div>
+    <button type="submit">비밀번호 변경</button>
+  </form>
+</div>
+{% endblock %}

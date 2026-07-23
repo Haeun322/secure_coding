@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}{{ product['title'] }}{% endblock %}
+{% block content %}
+<div class="card">
+  {% if product['status'] == 'blocked' %}
+    <p><span class="badge blocked">차단된 상품</span></p>
+  {% elif product['status'] == 'sold' %}
+    <p><span class="badge sold">판매완료</span></p>
+  {% endif %}
+
+  {% if product['image_path'] %}
+    <img src="{{ url_for('products.image', filename=product['image_path']) }}"
+         alt="상품 이미지" style="max-width:100%;border-radius:8px;">
+  {% endif %}
+
+  <h1>{{ product['title'] }}</h1>
+  <p class="price" style="font-size:1.4rem;">{{ '{:,}'.format(product['price']) }}원</p>
+  <p>판매자:
+    <a href="{{ url_for('auth.profile', user_id=product['seller_id']) }}">{{ product['seller_name'] }}</a>
+  </p>
+
+  <!-- 사용자 입력은 Jinja2 자동 이스케이프로 안전하게 출력. 줄바꿈만 유지 -->
+  <p style="white-space:pre-wrap;">{{ product['description'] }}</p>
+
+  <div class="actions">
+    {% if is_owner %}
+      <a href="{{ url_for('products.edit', product_id=product['id']) }}"><button type="button">수정</button></a>
+      <form method="post" action="{{ url_for('products.delete', product_id=product['id']) }}" class="inline"
+            onsubmit="return confirm('정말 삭제할까요?');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="danger">삭제</button>
+      </form>
+    {% elif current_user %}
+      <a href="{{ url_for('chat.thread', user_id=product['seller_id']) }}"><button type="button">판매자와 대화</button></a>
+      <a href="{{ url_for('reports.create', target_type='product', target_id=product['id']) }}"><button type="button" class="danger">상품 신고</button></a>
+    {% else %}
+      <a href="{{ url_for('auth.login') }}">로그인 후 대화/구매</a>
+    {% endif %}
+
+    {% if is_admin and not is_owner %}
+      <form method="post" action="{{ url_for('admin.block_product', product_id=product['id']) }}" class="inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="danger">관리자 차단</button>
+      </form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
