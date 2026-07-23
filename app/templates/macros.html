@@ -1,0 +1,14 @@
+{# 상품 상태 배지: 상품 상태(pstatus) + 최신 주문 상태(ostatus)를 합쳐 표시.
+   - blocked           -> 차단
+   - 주문이 held        -> 거래중(결제 진행중)
+   - sold(그 외)        -> 거래완료
+   - active            -> 배지 없음(판매중) #}
+{% macro status_badge(pstatus, ostatus) -%}
+  {%- if pstatus == 'blocked' -%}
+    <span class="badge blocked">차단</span>
+  {%- elif ostatus == 'held' -%}
+    <span class="badge sold">거래중</span>
+  {%- elif pstatus == 'sold' -%}
+    <span class="badge sold">거래완료</span>
+  {%- endif -%}
+{%- endmacro %}

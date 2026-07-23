@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros.html" import status_badge %}
 {% block title %}{{ profile['display_name'] }} 님의 프로필{% endblock %}
 {% block content %}
 <div class="card">
@@ -42,9 +43,8 @@
           <img class="thumb" src="{{ url_for('products.image', filename=p['image_path']) }}" alt="상품 이미지">
         {% else %}<div class="thumb"></div>{% endif %}
         <div class="body">
-          <div>{{ p['title'] }}</div>
+          <div>{{ p['title'] }} {{ status_badge(p['status'], p['order_status']) }}</div>
           <div class="price">{{ '{:,}'.format(p['price']) }}원</div>
-          {% if p['status'] == 'sold' %}<span class="badge sold">판매완료</span>{% endif %}
         </div>
       </a>
     {% endfor %}

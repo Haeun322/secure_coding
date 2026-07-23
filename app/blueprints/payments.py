@@ -51,6 +51,29 @@ def wallet():
     return render_template("payments/wallet.html", user=me, transfers=transfers)
 
 
+@bp.route("/orders")
+@login_required
+def my_orders():
+    """내 구매내역. 보류(held) 건은 여기서 바로 구매 확정/취소할 수 있다."""
+    me = current_user()
+    db = get_db()
+    orders = db.execute(
+        """
+        SELECT o.id, o.amount, o.status, o.created_at,
+               p.id AS product_id, p.title AS product_title, p.image_path,
+               u.display_name AS seller_name
+        FROM orders o
+        JOIN products p ON p.id = o.product_id
+        JOIN users u ON u.id = o.seller_id
+        WHERE o.buyer_id = ?
+        ORDER BY o.id DESC
+        LIMIT 100
+        """,
+        (me["id"],),
+    ).fetchall()
+    return render_template("payments/orders.html", orders=orders)
+
+
 @bp.route("/transfer", methods=("GET", "POST"))
 @login_required
 def transfer():

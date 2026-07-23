@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}구매내역{% endblock %}
+{% block content %}
+<h1>구매내역</h1>
+{% if orders %}
+  <table>
+    <thead><tr><th>상품</th><th>금액</th><th>상태</th><th>일시</th><th>처리</th></tr></thead>
+    <tbody>
+      {% for o in orders %}
+        <tr>
+          <td><a href="{{ url_for('products.detail', product_id=o['product_id']) }}">{{ o['product_title'] }}</a>
+            <br><span class="muted">판매자 {{ o['seller_name'] }}</span></td>
+          <td>{{ '{:,}'.format(o['amount']) }}원</td>
+          <td>
+            {% if o['status'] == 'held' %}<span class="badge sold">결제 보류중</span>
+            {% elif o['status'] == 'confirmed' %}<span class="badge active">거래완료</span>
+            {% else %}<span class="badge">취소됨</span>{% endif %}
+          </td>
+          <td>{{ o['created_at'] }}</td>
+          <td>
+            {% if o['status'] == 'held' %}
+              <div class="actions">
+                <form method="post" action="{{ url_for('payments.confirm_order', order_id=o['id']) }}" class="inline"
+                      data-confirm="구매를 확정하고 판매자에게 정산할까요?">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit">구매 확정</button>
+                </form>
+                <form method="post" action="{{ url_for('payments.cancel_order', order_id=o['id']) }}" class="inline"
+                      data-confirm="거래를 취소하고 환불받을까요?">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="danger">거래 취소(환불)</button>
+                </form>
+              </div>
+            {% elif o['status'] == 'confirmed' %}
+              <a href="{{ url_for('products.detail', product_id=o['product_id']) }}">후기 남기기</a>
+            {% else %}
+              <span class="muted">—</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <p class="muted">아직 구매내역이 없습니다.</p>
+{% endif %}
+{% endblock %}

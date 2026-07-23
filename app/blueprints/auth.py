@@ -216,9 +216,13 @@ def profile(user_id):
         return redirect(url_for("main.index"))
 
     products = db.execute(
-        """SELECT id, title, price, image_path, status FROM products
-           WHERE seller_id = ? AND status != 'blocked'
-           ORDER BY created_at DESC""",
+        """SELECT p.id, p.title, p.price, p.image_path, p.status,
+                  (SELECT o.status FROM orders o
+                   WHERE o.product_id = p.id AND o.status IN ('held', 'confirmed')
+                   ORDER BY o.id DESC LIMIT 1) AS order_status
+           FROM products p
+           WHERE p.seller_id = ? AND p.status != 'blocked'
+           ORDER BY p.created_at DESC""",
         (user_id,),
     ).fetchall()
 

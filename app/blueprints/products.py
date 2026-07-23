@@ -110,7 +110,10 @@ def listing():
     db = get_db()
 
     # 공통 WHERE 절과 파라미터를 조건에 따라 구성 (모두 파라미터 바인딩)
-    where = "p.status = 'active' AND u.status = 'active'"
+    # 판매중 + '거래중(결제 보류)' 상품을 보여 주고, 거래 완료 상품은 제외한다.
+    where = ("u.status = 'active' AND (p.status = 'active' "
+             "OR EXISTS (SELECT 1 FROM orders o "
+             "WHERE o.product_id = p.id AND o.status = 'held'))")
     params = []
     if q:
         # LIKE 와일드카드/이스케이프 문자를 사용자 입력에서 무력화
@@ -140,9 +143,12 @@ def listing():
     order_by = SORTS[sort][1]
     rows = db.execute(
         f"""
-        SELECT p.id, p.title, p.price, p.image_path, p.created_at, p.region,
+        SELECT p.id, p.title, p.price, p.image_path, p.created_at, p.region, p.status,
                u.display_name AS seller_name,
-               (SELECT COUNT(*) FROM favorites f WHERE f.product_id = p.id) AS fav_count
+               (SELECT COUNT(*) FROM favorites f WHERE f.product_id = p.id) AS fav_count,
+               (SELECT o.status FROM orders o
+                WHERE o.product_id = p.id AND o.status IN ('held', 'confirmed')
+                ORDER BY o.id DESC LIMIT 1) AS order_status
         FROM products p JOIN users u ON u.id = p.seller_id
         WHERE {where}
         ORDER BY {order_by}
@@ -335,7 +341,10 @@ def favorites():
     rows = get_db().execute(
         """
         SELECT p.id, p.title, p.price, p.image_path, p.status, p.region,
-               u.display_name AS seller_name
+               u.display_name AS seller_name,
+               (SELECT o.status FROM orders o
+                WHERE o.product_id = p.id AND o.status IN ('held', 'confirmed')
+                ORDER BY o.id DESC LIMIT 1) AS order_status
         FROM favorites f
         JOIN products p ON p.id = f.product_id
         JOIN users u ON u.id = p.seller_id

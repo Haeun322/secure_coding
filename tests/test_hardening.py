@@ -492,6 +492,54 @@ def test_category_filter_and_sort(app):
     assert r3.index("청바지") < r3.index("노트북")
 
 
+# --- 보류(거래중) 상태 표시 + 구매내역 -----------------------------------
+def test_held_product_shows_in_progress_not_completed(app):
+    seller = app.test_client()
+    register(seller, "hsell"); login(seller, "hsell")
+    _create_priced_product(seller, 100, "보류상품")     # id 1
+    buyer = app.test_client()
+    register(buyer, "hbuy"); login(buyer, "hbuy")
+    buyer.post("/wallet/topup", data={
+        "csrf_token": csrf_from(buyer, "/wallet/"), "amount": "1000"}, follow_redirects=True)
+    # 찜 + 결제(보류)
+    buyer.post("/products/1/favorite", data={"csrf_token": csrf_from(buyer, "/wallet/")},
+               follow_redirects=True)
+    buyer.post("/wallet/buy/1", data={"csrf_token": csrf_from(buyer, "/wallet/")},
+               follow_redirects=True)
+
+    # 관심목록: '거래중'이어야 하고 '거래완료'가 아니어야 한다
+    fav = buyer.get("/products/favorites").get_data(as_text=True)
+    assert "거래중" in fav and "거래완료" not in fav
+    # 메인: 보류 상품이 사라지지 않고 '거래중'으로 보인다
+    home = buyer.get("/").get_data(as_text=True)
+    assert "보류상품" in home and "거래중" in home
+    # 목록에서도 보인다
+    lst = buyer.get("/products/").get_data(as_text=True)
+    assert "보류상품" in lst
+
+
+def test_my_orders_page_confirm(app):
+    seller = app.test_client()
+    register(seller, "osell"); login(seller, "osell")
+    _create_priced_product(seller, 500, "주문상품")     # id 1
+    buyer = app.test_client()
+    register(buyer, "obuy"); login(buyer, "obuy")
+    buyer.post("/wallet/topup", data={
+        "csrf_token": csrf_from(buyer, "/wallet/"), "amount": "1000"}, follow_redirects=True)
+    buyer.post("/wallet/buy/1", data={"csrf_token": csrf_from(buyer, "/wallet/")},
+               follow_redirects=True)
+
+    # 구매내역에 보류 주문이 보인다
+    orders = buyer.get("/wallet/orders").get_data(as_text=True)
+    assert "주문상품" in orders and "결제 보류중" in orders
+
+    # 구매내역에서 바로 구매 확정 -> 판매자 정산
+    oid = _order_id(app, 1)
+    buyer.post(f"/wallet/orders/{oid}/confirm",
+               data={"csrf_token": csrf_from(buyer, "/wallet/")}, follow_redirects=True)
+    assert _balance(app, "osell") == 500
+
+
 # --- 상품별 대화 분리 -----------------------------------------------------
 def test_chat_is_separated_per_product(app):
     seller = app.test_client()

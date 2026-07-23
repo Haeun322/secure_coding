@@ -18,6 +18,7 @@
       <a href="{{ url_for('products.create') }}">상품등록</a>
       <a href="{{ url_for('products.favorites') }}">관심목록</a>
       <a href="{{ url_for('chat.inbox') }}">메시지</a>
+      <a href="{{ url_for('payments.my_orders') }}">구매내역</a>
       <a href="{{ url_for('payments.wallet') }}">지갑</a>
       <a href="{{ url_for('auth.me') }}">{{ current_user['display_name'] }}</a>
       {% if current_user['role'] == 'admin' %}
