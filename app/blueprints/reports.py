@@ -4,6 +4,8 @@
 자동 임계치: 서로 다른 사용자로부터 신고가 일정 수 이상 쌓이면 자동으로 숨김
 처리(blocked)하여 관리자 확인 전이라도 피해 확산을 막는다.
 """
+import sqlite3
+
 from flask import (
     Blueprint,
     abort,
@@ -61,8 +63,8 @@ def create(target_type, target_id):
                 (me["id"], target_type, target_id, reason),
             )
             db.commit()
-        except Exception:
-            # UNIQUE 제약: 같은 대상 중복 신고
+        except sqlite3.IntegrityError:
+            # UNIQUE 제약 위반: 같은 대상 중복 신고
             db.rollback()
             flash("이미 신고한 대상입니다.")
             return redirect(url_for("main.index"))
@@ -86,7 +88,12 @@ def _maybe_auto_block(db, target_type, target_id):
         return
 
     if target_type == "product":
-        db.execute("UPDATE products SET status = 'blocked' WHERE id = ?", (target_id,))
+        # 관리자가 올린 상품은 자동 차단에서 제외(사용자 자동 차단과 규칙을 일치시킴)
+        db.execute(
+            """UPDATE products SET status = 'blocked'
+               WHERE id = ? AND seller_id NOT IN (SELECT id FROM users WHERE role = 'admin')""",
+            (target_id,),
+        )
     else:
         # 관리자 계정은 자동 차단 대상에서 제외
         db.execute(

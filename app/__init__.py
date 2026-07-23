@@ -20,6 +20,13 @@ def create_app(test_config=None):
     if test_config:
         app.config.update(test_config)
 
+    # 프록시 뒤에 있을 때만 X-Forwarded-* 를 신뢰해 실제 클라이언트 IP 를 복원한다.
+    # (신뢰 홉 수를 명시하지 않으면 헤더 위조로 IP 를 속일 수 있어 기본은 비활성)
+    hops = app.config.get("TRUST_PROXY_HOPS", 0)
+    if hops and hops > 0:
+        from werkzeug.middleware.proxy_fix import ProxyFix
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=hops, x_proto=hops)
+
     # instance 폴더(및 업로드 폴더) 준비
     os.makedirs(app.config["INSTANCE_DIR"], exist_ok=True)
     os.makedirs(app.config["UPLOAD_DIR"], exist_ok=True)

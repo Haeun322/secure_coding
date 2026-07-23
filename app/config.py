@@ -57,6 +57,14 @@ class Config:
         # 업로드 및 요청 크기 제한 (파일 5MB)
         self.MAX_CONTENT_LENGTH = 5 * 1024 * 1024
 
+        # 리버스 프록시(nginx 등) 뒤에 둘 때 신뢰할 프록시 홉 수.
+        # 0 이면 프록시 없음(직접 노출). 1 이상이면 X-Forwarded-For 를 그만큼 신뢰해
+        # 실제 클라이언트 IP 를 복원한다(레이트리밋이 프록시 IP 하나로 뭉치는 문제 방지).
+        try:
+            self.TRUST_PROXY_HOPS = int(os.environ.get("TRUST_PROXY_HOPS", "0"))
+        except ValueError:
+            self.TRUST_PROXY_HOPS = 0
+
         # 최초 부팅 시 만들 관리자 계정 (선택)
         self.ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME")
         self.ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
@@ -72,6 +80,7 @@ class Config:
             "SESSION_COOKIE_SECURE": self.SESSION_COOKIE_SECURE,
             "PERMANENT_SESSION_LIFETIME": self.PERMANENT_SESSION_LIFETIME,
             "MAX_CONTENT_LENGTH": self.MAX_CONTENT_LENGTH,
+            "TRUST_PROXY_HOPS": self.TRUST_PROXY_HOPS,
             "ADMIN_USERNAME": self.ADMIN_USERNAME,
             "ADMIN_PASSWORD": self.ADMIN_PASSWORD,
         }

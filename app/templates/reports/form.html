@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}신고{% endblock %}
 {% block content %}
-<div class="card" style="max-width:460px;margin:0 auto;">
+<div class="card narrow">
   <h1>{% if target_type == 'user' %}사용자{% else %}상품{% endif %} 신고</h1>
   <form method="post" action="{{ url_for('reports.create', target_type=target_type, target_id=target_id) }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

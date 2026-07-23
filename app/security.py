@@ -131,10 +131,18 @@ LOGIN_MAX_ATTEMPTS = 5           # 창(window) 내 실패 허용 횟수
 
 def record_login_attempt(identifier, success):
     db = get_db()
+    # 식별자는 공격자가 임의로 길게 보낼 수 있으므로 길이를 제한한다.
+    identifier = (identifier or "")[:80]
     db.execute(
         "INSERT INTO login_attempts (identifier, success) VALUES (?, ?)",
         (identifier, 1 if success else 0),
     )
+    # 테이블 무한 증가 방지: 가끔 창(window)을 벗어난 오래된 기록을 정리한다.
+    if secrets.randbelow(10) == 0:
+        db.execute(
+            "DELETE FROM login_attempts WHERE attempt_at < datetime('now', ?)",
+            (f"-{LOGIN_WINDOW_SECONDS} seconds",),
+        )
     db.commit()
 
 
@@ -185,12 +193,15 @@ def rate_limit(key, max_calls, per_seconds):
 def init_security_headers(app):
     @app.after_request
     def _set_headers(resp):
-        # 인라인 스크립트를 쓰지 않으므로 script-src 를 self 로 제한 -> XSS 영향 축소
+        # 인라인 스크립트/스타일을 쓰지 않으므로 script/style-src 를 self 로 제한.
+        # 인라인 style 속성과 인라인 이벤트 핸들러도 프로젝트에서 모두 제거해
+        # 'unsafe-inline' 없이도 화면이 정상 동작한다(XSS 영향 최소화).
         resp.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "img-src 'self' data:; "
             "script-src 'self'; "
             "style-src 'self'; "
+            "object-src 'none'; "
             "form-action 'self'; "
             "base-uri 'self'; "
             "frame-ancestors 'none'"
@@ -199,4 +210,9 @@ def init_security_headers(app):
         resp.headers["X-Frame-Options"] = "DENY"          # 클릭재킹 방지
         resp.headers["Referrer-Policy"] = "same-origin"
         resp.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        # HTTPS(운영)에서만 HSTS 를 보낸다. HTTP 로 켜면 개발이 불편해지므로 조건부.
+        if app.config.get("SESSION_COOKIE_SECURE"):
+            resp.headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains"
+            )
         return resp

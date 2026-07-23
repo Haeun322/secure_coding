@@ -70,6 +70,13 @@ def block_user(user_id):
 def unblock_user(user_id):
     db = get_db()
     db.execute("UPDATE users SET status = 'active' WHERE id = ?", (user_id,))
+    # 차단을 푼 뒤 남아 있는 미처리 신고가 곧바로 재차단(자동 차단 임계치)을
+    # 다시 발동시키지 않도록, 해당 대상의 열린 신고를 처리 완료로 정리한다.
+    db.execute(
+        """UPDATE reports SET status = 'resolved'
+           WHERE target_type = 'user' AND target_id = ? AND status = 'open'""",
+        (user_id,),
+    )
     db.commit()
     flash("사용자 차단을 해제했습니다.")
     return redirect(url_for("admin.users"))
@@ -104,6 +111,12 @@ def block_product(product_id):
 def unblock_product(product_id):
     db = get_db()
     db.execute("UPDATE products SET status = 'active' WHERE id = ?", (product_id,))
+    # 재차단 방지: 해당 상품의 열린 신고를 처리 완료로 정리한다.
+    db.execute(
+        """UPDATE reports SET status = 'resolved'
+           WHERE target_type = 'product' AND target_id = ? AND status = 'open'""",
+        (product_id,),
+    )
     db.commit()
     flash("상품 차단을 해제했습니다.")
     return redirect(url_for("admin.products"))

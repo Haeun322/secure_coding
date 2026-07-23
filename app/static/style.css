@@ -83,4 +83,25 @@ th { background: #f0f2f5; }
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
 .stat { background: #fff; border: 1px solid #e2e5e9; border-radius: 10px; padding: 16px; }
 .stat .num { font-size: 1.6rem; font-weight: 700; }
-.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* 유틸리티 클래스: 인라인 style 속성을 없애 CSP(style-src 'self')를 지키기 위함 */
+.narrow { max-width: 480px; margin: 0 auto; }
+.wide-form { max-width: 560px; margin: 0 auto; }
+.pre-wrap { white-space: pre-wrap; word-break: break-word; }
+.img-full { max-width: 100%; border-radius: 8px; }
+.price-lg { font-size: 1.4rem; }
+.balance { font-size: 2rem; font-weight: 700; }
+.amt-in { width: 130px; }
+.ta-sm { min-height: 70px; }
+.neg { color: #b3261e; }
+.pos { color: #1a7f37; }
+.mt { margin-top: 16px; }
+
+/* 페이지네이션 */
+.pager { display: flex; gap: 8px; justify-content: center; align-items: center; margin: 20px 0; }
+.pager a, .pager span {
+  padding: 6px 12px; border: 1px solid #ccd1d7; border-radius: 6px; background: #fff;
+}
+.pager .current { background: #1a5fd0; color: #fff; border-color: #1a5fd0; }
+.pager .disabled { color: #b6bcc4; }

@@ -23,6 +23,10 @@ from ..validators import validate_amount, validate_text
 
 bp = Blueprint("payments", __name__, url_prefix="/wallet")
 
+# 데모 충전으로 만들 수 있는 계정 잔액 총액 상한(원).
+# 실서비스에서는 topup 을 실제 결제(PG) 승인 검증으로 대체해야 한다.
+MAX_WALLET_BALANCE = 10_000_000
+
 
 @bp.route("/")
 @login_required
@@ -169,6 +173,13 @@ def topup():
     conn = get_write_connection()
     try:
         conn.execute("BEGIN IMMEDIATE")
+        # 데모 충전이 무한정 잔액을 만들지 못하도록 계정 잔액 총액에 상한을 둔다.
+        row = conn.execute("SELECT balance FROM users WHERE id = ?",
+                           (me["id"],)).fetchone()
+        if row["balance"] + amount > MAX_WALLET_BALANCE:
+            conn.execute("ROLLBACK")
+            flash(f"보유 잔액 한도({MAX_WALLET_BALANCE:,}원)를 초과할 수 없습니다.")
+            return redirect(url_for("payments.wallet"))
         conn.execute("UPDATE users SET balance = balance + ? WHERE id = ?",
                      (amount, me["id"]))
         conn.execute("COMMIT")

@@ -8,6 +8,18 @@ import re
 
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,20}$")
 
+# 금액 문자열은 ASCII 숫자만 허용한다. int() 는 전각숫자('１２３')나 유니코드
+# 숫자도 받아들이므로, 사용자가 의도하지 않은 값으로 바뀌는 것을 막기 위해 직접 검사한다.
+_DIGITS_RE = re.compile(r"^[0-9]+$")
+_MAX_NUM_LEN = 15  # 자릿수 상한(초대형 정수 파싱 CPU 낭비 방지)
+
+# 아주 흔한 취약 비밀번호 최소 차단 목록(정책 보조용).
+COMMON_PASSWORDS = {
+    "password", "password1", "12345678", "123456789", "1234567890",
+    "qwerty123", "111111111", "12341234", "abcd1234", "qwer1234",
+    "password123", "admin123", "iloveyou1", "welcome1", "1q2w3e4r",
+}
+
 # 필드별 최대 길이. DB 낭비와 서비스 거부(초대형 입력)를 막는다.
 LIMITS = {
     "display_name": 30,
@@ -30,7 +42,7 @@ def validate_username(value):
     return value
 
 
-def validate_password(value):
+def validate_password(value, *, username=None):
     value = value or ""
     if len(value) < 8:
         raise ValueError("비밀번호는 최소 8자 이상이어야 합니다.")
@@ -39,7 +51,33 @@ def validate_password(value):
     # 최소한의 복잡도: 문자와 숫자를 모두 포함
     if not re.search(r"[A-Za-z]", value) or not re.search(r"\d", value):
         raise ValueError("비밀번호는 영문과 숫자를 모두 포함해야 합니다.")
+    if value.lower() in COMMON_PASSWORDS:
+        raise ValueError("너무 흔한 비밀번호입니다. 다른 비밀번호를 사용하세요.")
+    # 아이디를 그대로/포함한 비밀번호 금지
+    if username and username.lower() in value.lower():
+        raise ValueError("비밀번호에 아이디를 포함할 수 없습니다.")
     return value
+
+
+def _parse_won(value):
+    """금액 공통 파서. ASCII 숫자만, 길이 제한 후 정수 변환.
+
+    '1,000' 처럼 천단위 콤마는 허용하되, '1,2,3' 같은 이상한 콤마 배치나
+    전각/유니코드 숫자는 거부해 사용자가 의도한 값과 달라지는 것을 막는다.
+    """
+    if value is None:
+        raise ValueError("금액을 입력하세요.")
+    s = str(value).strip()
+    # 콤마는 올바른 천단위 구분(1 또는 1,000 또는 12,345,678)일 때만 제거
+    if "," in s:
+        if not re.match(r"^[0-9]{1,3}(,[0-9]{3})+$", s):
+            raise ValueError("금액 형식이 올바르지 않습니다.")
+        s = s.replace(",", "")
+    if len(s) > _MAX_NUM_LEN:
+        raise ValueError("금액이 너무 큽니다.")
+    if not _DIGITS_RE.match(s):
+        raise ValueError("금액은 숫자여야 합니다.")
+    return int(s)
 
 
 def validate_text(value, field, *, allow_empty=False):
@@ -54,14 +92,8 @@ def validate_text(value, field, *, allow_empty=False):
 
 
 def validate_amount(value):
-    """금액을 양의 정수(원)로 변환. 문자열/실수/음수/과대값 모두 거른다."""
-    try:
-        # 실수 문자열이 들어와도 소수점은 허용하지 않는다.
-        if isinstance(value, str):
-            value = value.strip().replace(",", "")
-        amount = int(value)
-    except (TypeError, ValueError):
-        raise ValueError("금액은 숫자여야 합니다.")
+    """송금 금액을 양의 정수(원)로 변환. 실수/음수/과대값/이상한 형식을 거른다."""
+    amount = _parse_won(value)
     if amount <= 0:
         raise ValueError("금액은 1원 이상이어야 합니다.")
     if amount > MAX_AMOUNT:
@@ -71,14 +103,7 @@ def validate_amount(value):
 
 def validate_price(value):
     """상품 가격은 0원(나눔) 이상 허용."""
-    try:
-        if isinstance(value, str):
-            value = value.strip().replace(",", "")
-        price = int(value)
-    except (TypeError, ValueError):
-        raise ValueError("가격은 숫자여야 합니다.")
-    if price < 0:
-        raise ValueError("가격은 0원 이상이어야 합니다.")
+    price = _parse_won(value)
     if price > MAX_AMOUNT:
         raise ValueError("가격이 너무 큽니다.")
     return price

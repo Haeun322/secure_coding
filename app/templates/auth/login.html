@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}로그인{% endblock %}
 {% block content %}
-<div class="card" style="max-width:420px;margin:0 auto;">
+<div class="card narrow">
   <h1>로그인</h1>
   <form method="post" action="{{ url_for('auth.login', next=request.args.get('next')) }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

@@ -85,7 +85,9 @@ ADMIN_PASSWORD=ChangeThisAdminPw!234
 ```
 
 - `SECRET_KEY`: 세션/CSRF 서명 키. **반드시 무작위 값으로 교체**하세요.
-- `SESSION_COOKIE_SECURE`: HTTPS로 서비스하면 `1`, 로컬 개발이면 `0`.
+- `SESSION_COOKIE_SECURE`: HTTPS로 서비스하면 `1`(세션 쿠키 Secure + HSTS 활성), 로컬 개발이면 `0`.
+- `TRUST_PROXY_HOPS`: 리버스 프록시 뒤에 배포할 때 신뢰할 프록시 홉 수(nginx 1대면 `1`).
+  직접 노출이면 `0`. 레이트리밋이 실제 클라이언트 IP 기준으로 동작하게 합니다.
 - `ADMIN_USERNAME` / `ADMIN_PASSWORD`: 최초 실행 시 관리자 계정이 자동 생성됩니다.
   (비밀번호는 8자 이상, 영문+숫자 포함) 생성 후에는 이 두 값을 지워도 됩니다.
 
@@ -110,8 +112,10 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -q
 ```
 
-20개의 통합 테스트가 기능과 보안 동작(CSRF, SQLi, XSS, 접근 통제, 송금 안전성,
-레이트리밋 등)을 검증합니다.
+32개의 통합·단위 테스트가 기능과 보안 동작(CSRF, SQLi, XSS, 접근 통제, 모더레이션 우회
+방지, 오픈 리다이렉트, 계정 열거 방지, 송금 안전성, 스레드 10개 동시 송금에서 이중지불 0건,
+레이트리밋 등)을 검증합니다. `tests/test_app.py`가 기본 기능·보안을, `tests/test_hardening.py`가
+정밀 검증에서 발견한 결함들의 회귀 방지를 담당합니다.
 
 ## 빠른 사용 순서
 
@@ -151,8 +155,11 @@ secure_coding/
 │   ├── validators.py     # 입력 검증
 │   ├── blueprints/       # 기능별 라우트
 │   ├── templates/        # Jinja2 템플릿
-│   └── static/style.css
-└── tests/                # pytest 통합 테스트
+│   └── static/           # style.css, app.js
+└── tests/
+    ├── conftest.py       # 테스트 픽스처/헬퍼
+    ├── test_app.py       # 기본 기능·보안 테스트
+    └── test_hardening.py # 정밀 검증 회귀 테스트
 ```
 
 ## 라이선스

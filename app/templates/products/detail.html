@@ -10,23 +10,23 @@
 
   {% if product['image_path'] %}
     <img src="{{ url_for('products.image', filename=product['image_path']) }}"
-         alt="상품 이미지" style="max-width:100%;border-radius:8px;">
+         alt="상품 이미지" class="img-full">
   {% endif %}
 
   <h1>{{ product['title'] }}</h1>
-  <p class="price" style="font-size:1.4rem;">{{ '{:,}'.format(product['price']) }}원</p>
+  <p class="price price-lg">{{ '{:,}'.format(product['price']) }}원</p>
   <p>판매자:
     <a href="{{ url_for('auth.profile', user_id=product['seller_id']) }}">{{ product['seller_name'] }}</a>
   </p>
 
   <!-- 사용자 입력은 Jinja2 자동 이스케이프로 안전하게 출력. 줄바꿈만 유지 -->
-  <p style="white-space:pre-wrap;">{{ product['description'] }}</p>
+  <p class="pre-wrap">{{ product['description'] }}</p>
 
   <div class="actions">
     {% if is_owner %}
       <a href="{{ url_for('products.edit', product_id=product['id']) }}"><button type="button">수정</button></a>
       <form method="post" action="{{ url_for('products.delete', product_id=product['id']) }}" class="inline"
-            onsubmit="return confirm('정말 삭제할까요?');">
+            data-confirm="정말 삭제할까요?">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit" class="danger">삭제</button>
       </form>

@@ -33,11 +33,22 @@ _DUMMY_HASH = generate_password_hash(_secrets.token_hex(16))
 
 
 def _is_safe_next(target):
-    """오픈 리다이렉트 방지: 같은 사이트 내부 경로만 허용."""
+    """오픈 리다이렉트 방지: 같은 사이트 내부 경로만 허용.
+
+    '/\\evil.com' 처럼 역슬래시가 섞이면 브라우저가 '//evil.com' 으로 정규화해
+    외부로 튕길 수 있으므로 역슬래시/제어문자/'//' 시작을 모두 거른다.
+    """
     if not target:
         return False
+    if "\\" in target or "\x00" in target or "\n" in target or "\r" in target:
+        return False
     parsed = urlparse(target)
-    return not parsed.scheme and not parsed.netloc and target.startswith("/")
+    return (
+        not parsed.scheme
+        and not parsed.netloc
+        and target.startswith("/")
+        and not target.startswith("//")
+    )
 
 
 @bp.route("/register", methods=("GET", "POST"))
@@ -53,7 +64,7 @@ def register():
 
         try:
             username = validate_username(request.form.get("username"))
-            password = validate_password(request.form.get("password"))
+            password = validate_password(request.form.get("password"), username=username)
             display_name = validate_text(request.form.get("display_name"), "display_name")
         except ValueError as exc:
             flash(str(exc))
@@ -89,9 +100,16 @@ def login():
         username = (request.form.get("username") or "").strip()
         password = request.form.get("password") or ""
 
-        # 계정명 + IP 두 축으로 레이트리밋을 건다.
+        # 레이트리밋 축:
+        #  - ip:{ip}            : 한 IP 가 여러 계정을 시도하는 무차별 대입 차단
+        #  - user:{name}:{ip}   : 특정 계정을 노린 시도 차단
+        # 계정명만으로 잠그지 않는다. 그러면 공격자가 남의 계정명을 반복 실패시켜
+        # 그 사용자를 로그아웃시키는 '계정 잠금 DoS' 가 가능해지기 때문이다.
+        # 계정 축에 IP 를 섞으면, 피해자는 자기 IP 에서 정상 로그인할 수 있다.
         ip = request.remote_addr or "unknown"
-        if is_login_blocked(username) or is_login_blocked(f"ip:{ip}"):
+        acct_key = f"user:{username}:{ip}"
+        ip_key = f"ip:{ip}"
+        if is_login_blocked(acct_key) or is_login_blocked(ip_key):
             flash("로그인 시도가 너무 많습니다. 15분 후 다시 시도하세요.")
             return render_template("auth/login.html"), 429
 
@@ -105,24 +123,26 @@ def login():
         stored_hash = user["password_hash"] if user else _DUMMY_HASH
         password_ok = check_password_hash(stored_hash, password)
 
-        if user and password_ok and user["status"] == "active":
-            record_login_attempt(username, success=True)
-            clear_login_attempts(username)
-            clear_login_attempts(f"ip:{ip}")
-            login_user(user["id"])
-            flash("로그인되었습니다.")
-            nxt = request.args.get("next")
-            if _is_safe_next(nxt):
-                return redirect(nxt)
-            return redirect(url_for("main.index"))
-
-        # 실패 처리 (차단 계정도 동일 메시지로 정보 노출 최소화)
-        record_login_attempt(username, success=False)
-        record_login_attempt(f"ip:{ip}", success=False)
-        if user and user["status"] == "blocked":
+        if user and password_ok:
+            # 비밀번호가 맞은 경우
+            if user["status"] == "active":
+                clear_login_attempts(acct_key)
+                clear_login_attempts(ip_key)
+                login_user(user["id"])
+                flash("로그인되었습니다.")
+                nxt = request.args.get("next")
+                if _is_safe_next(nxt):
+                    return redirect(nxt)
+                return redirect(url_for("main.index"))
+            # 비밀번호는 맞지만 차단된 계정 -> 본인에게만 사유를 알린다.
+            # (비밀번호를 모르는 공격자는 이 분기에 도달할 수 없어 열거 불가)
             flash("차단된 계정입니다. 관리자에게 문의하세요.")
-        else:
-            flash("아이디 또는 비밀번호가 올바르지 않습니다.")
+            return render_template("auth/login.html"), 403
+
+        # 인증 실패: 계정 존재/차단 여부와 무관하게 동일 메시지로 응답한다.
+        record_login_attempt(acct_key, success=False)
+        record_login_attempt(ip_key, success=False)
+        flash("아이디 또는 비밀번호가 올바르지 않습니다.")
         return render_template("auth/login.html"), 401
 
     return render_template("auth/login.html")
@@ -165,7 +185,8 @@ def me():
                 flash("현재 비밀번호가 올바르지 않습니다.")
                 return redirect(url_for("auth.me"))
             try:
-                new_pw = validate_password(request.form.get("new_password"))
+                new_pw = validate_password(request.form.get("new_password"),
+                                           username=user["username"])
             except ValueError as exc:
                 flash(str(exc))
                 return redirect(url_for("auth.me"))

@@ -69,44 +69,61 @@ def _save_image(file_storage):
     return filename
 
 
+PAGE_SIZE = 12          # 한 페이지 상품 수
+SEARCH_MAX_LEN = 100    # 검색어 길이 상한
+
+
 @bp.route("/")
 def listing():
-    """상품 목록 + 검색.
+    """상품 목록 + 검색 + 페이지네이션.
 
     검색어는 LIKE 파라미터 바인딩으로 처리한다(SQL Injection 방지).
     """
-    q = (request.args.get("q") or "").strip()
+    q = (request.args.get("q") or "").strip()[:SEARCH_MAX_LEN]
+
+    # 페이지 번호 파싱(1 미만/비정상 값은 1로 보정)
+    try:
+        page = int(request.args.get("page", "1"))
+    except ValueError:
+        page = 1
+    if page < 1:
+        page = 1
+    offset = (page - 1) * PAGE_SIZE
+
     db = get_db()
 
+    # 공통 WHERE 절과 파라미터를 검색 여부에 따라 구성
+    where = "p.status = 'active' AND u.status = 'active'"
+    params = []
     if q:
         # LIKE 와일드카드/이스케이프 문자를 사용자 입력에서 무력화
         safe = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         like = f"%{safe}%"
-        rows = db.execute(
-            """
-            SELECT p.id, p.title, p.price, p.image_path, p.created_at,
-                   u.display_name AS seller_name
-            FROM products p JOIN users u ON u.id = p.seller_id
-            WHERE p.status = 'active' AND u.status = 'active'
-              AND (p.title LIKE ? ESCAPE '\\' OR p.description LIKE ? ESCAPE '\\')
-            ORDER BY p.created_at DESC
-            LIMIT 100
-            """,
-            (like, like),
-        ).fetchall()
-    else:
-        rows = db.execute(
-            """
-            SELECT p.id, p.title, p.price, p.image_path, p.created_at,
-                   u.display_name AS seller_name
-            FROM products p JOIN users u ON u.id = p.seller_id
-            WHERE p.status = 'active' AND u.status = 'active'
-            ORDER BY p.created_at DESC
-            LIMIT 100
-            """
-        ).fetchall()
+        where += " AND (p.title LIKE ? ESCAPE '\\' OR p.description LIKE ? ESCAPE '\\')"
+        params += [like, like]
 
-    return render_template("products/list.html", products=rows, q=q)
+    total = db.execute(
+        f"SELECT COUNT(*) AS c FROM products p JOIN users u ON u.id = p.seller_id WHERE {where}",
+        params,
+    ).fetchone()["c"]
+
+    rows = db.execute(
+        f"""
+        SELECT p.id, p.title, p.price, p.image_path, p.created_at,
+               u.display_name AS seller_name
+        FROM products p JOIN users u ON u.id = p.seller_id
+        WHERE {where}
+        ORDER BY p.created_at DESC, p.id DESC
+        LIMIT ? OFFSET ?
+        """,
+        params + [PAGE_SIZE, offset],
+    ).fetchall()
+
+    total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+    return render_template(
+        "products/list.html",
+        products=rows, q=q, page=page, total_pages=total_pages, total=total,
+    )
 
 
 @bp.route("/<int:product_id>")
@@ -172,6 +189,11 @@ def edit(product_id):
     # 소유권 확인(IDOR 방지): 본인 상품만 수정 가능
     if product["seller_id"] != current_user()["id"]:
         abort(403)
+    # 관리자/자동 모더레이션으로 차단된 상품은 소유자가 수정해 되살릴 수 없다.
+    # (status 폼 값으로 blocked -> active 우회 차단)
+    if product["status"] == "blocked":
+        flash("차단된 상품은 수정할 수 없습니다. 관리자에게 문의하세요.")
+        return redirect(url_for("products.detail", product_id=product_id))
 
     if request.method == "POST":
         try:
@@ -212,11 +234,22 @@ def delete(product_id):
     if product is None:
         abort(404)
     user = current_user()
+    is_admin = user["role"] == "admin"
     # 소유자 또는 관리자만 삭제 가능
-    if product["seller_id"] != user["id"] and user["role"] != "admin":
+    if product["seller_id"] != user["id"] and not is_admin:
         abort(403)
+    # 차단된 상품은 신고/조사 근거이므로 소유자가 임의로 지울 수 없다(관리자만 가능).
+    if product["status"] == "blocked" and not is_admin:
+        flash("차단된 상품은 삭제할 수 없습니다.")
+        return redirect(url_for("products.detail", product_id=product_id))
 
     db.execute("DELETE FROM products WHERE id = ?", (product_id,))
+    # reports.target_id 는 다형(user/product) 참조라 FK 가 없다.
+    # 상품이 사라지면 그 상품을 향한 신고도 함께 정리해 관리자 큐가 오염되지 않게 한다.
+    db.execute(
+        "DELETE FROM reports WHERE target_type = 'product' AND target_id = ?",
+        (product_id,),
+    )
     db.commit()
     if product["image_path"]:
         _remove_image(product["image_path"])

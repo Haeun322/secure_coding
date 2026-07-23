@@ -18,7 +18,7 @@
   <form method="post" action="{{ url_for('chat.thread', user_id=other['id']) }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="form-row">
-      <textarea name="body" required maxlength="1000" placeholder="메시지 입력" style="min-height:70px;"></textarea>
+      <textarea name="body" required maxlength="1000" placeholder="메시지 입력" class="ta-sm"></textarea>
     </div>
     <button type="submit">보내기</button>
   </form>

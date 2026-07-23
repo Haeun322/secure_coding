@@ -16,9 +16,15 @@ def get_db():
         g.db = sqlite3.connect(
             current_app.config["DATABASE"],
             detect_types=sqlite3.PARSE_DECLTYPES,
+            timeout=10,
         )
         g.db.row_factory = sqlite3.Row          # 컬럼명을 키로 접근 가능
         g.db.execute("PRAGMA foreign_keys = ON")  # 외래키 제약 활성화(기본은 꺼짐)
+        # WAL: 읽기와 쓰기가 서로를 막지 않게 해 동시성을 높인다.
+        # busy_timeout: 잠금이 잡혀 있으면 즉시 실패하지 않고 잠시 대기한다.
+        g.db.execute("PRAGMA journal_mode = WAL")
+        g.db.execute("PRAGMA busy_timeout = 5000")
+        g.db.execute("PRAGMA synchronous = NORMAL")
     return g.db
 
 
@@ -43,6 +49,7 @@ def get_write_connection():
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA busy_timeout = 5000")
+    conn.execute("PRAGMA journal_mode = WAL")
     return conn
 
 
