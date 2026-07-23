@@ -32,6 +32,14 @@ def reputation(db, user_id):
     ).fetchone()
     return {"count": row["c"], "avg": round(row["a"], 1)}
 
+
+def _has_held_order(db, product_id):
+    """이 상품에 결제 보류(에스크로 held) 상태의 주문이 있는지."""
+    return db.execute(
+        "SELECT 1 FROM orders WHERE product_id = ? AND status = 'held' LIMIT 1",
+        (product_id,),
+    ).fetchone() is not None
+
 # 허용 이미지 형식: 확장자와 매직바이트(파일 시그니처)를 함께 검사한다.
 ALLOWED_IMAGE = {
     "png": b"\x89PNG\r\n\x1a\n",
@@ -267,6 +275,11 @@ def edit(product_id):
     if product["status"] == "blocked":
         flash("차단된 상품은 수정할 수 없습니다. 관리자에게 문의하세요.")
         return redirect(url_for("products.detail", product_id=product_id))
+    # 결제 보류(에스크로) 중인 상품을 수정해 판매중으로 되돌리면 이중 결제가 가능해진다.
+    # 거래가 끝나거나 취소된 뒤에 수정하도록 막는다.
+    if _has_held_order(db, product_id):
+        flash("거래가 진행 중인 상품은 수정할 수 없습니다. 구매 확정 또는 취소 후 수정하세요.")
+        return redirect(url_for("products.detail", product_id=product_id))
 
     if request.method == "POST":
         try:
@@ -318,6 +331,19 @@ def delete(product_id):
     if product["status"] == "blocked" and not is_admin:
         flash("차단된 상품은 삭제할 수 없습니다.")
         return redirect(url_for("products.detail", product_id=product_id))
+    # 결제 보류(에스크로) 중인 상품을 지우면 주문이 함께 삭제되며 구매자 대금이
+    # 환불되지 않고 사라진다. 관리자라도 먼저 거래를 취소/확정해야 한다.
+    if _has_held_order(db, product_id):
+        flash("거래가 진행 중인 상품은 삭제할 수 없습니다. 먼저 거래를 완료하거나 취소하세요.")
+        return redirect(url_for("products.detail", product_id=product_id))
+    # 거래가 완료된 상품을 지우면 주문/후기가 함께 삭제된다. 판매자가 나쁜 후기를
+    # 지우려고 상품을 삭제하는 평판 조작을 막기 위해, 거래 이력이 있으면 삭제를 막는다.
+    if db.execute(
+        "SELECT 1 FROM orders WHERE product_id = ? AND status = 'confirmed' LIMIT 1",
+        (product_id,),
+    ).fetchone():
+        flash("거래(판매) 이력이 있는 상품은 삭제할 수 없습니다.")
+        return redirect(url_for("products.detail", product_id=product_id))
 
     db.execute("DELETE FROM products WHERE id = ?", (product_id,))
     # reports.target_id 는 다형(user/product) 참조라 FK 가 없다.
@@ -325,6 +351,15 @@ def delete(product_id):
     db.execute(
         "DELETE FROM reports WHERE target_type = 'product' AND target_id = ?",
         (product_id,),
+    )
+    # messages.product_id 는 마이그레이션으로 추가된 DB 에서는 FK 가 없어 자동 삭제되지
+    # 않는다. 신규/기존 DB 동작을 일치시키기 위해 이 상품의 메시지를 직접 정리한다.
+    db.execute("DELETE FROM messages WHERE product_id = ?", (product_id,))
+    # 이 상품을 가리키던 알림 링크(상품 상세 /products/<id>, 대화 /chat/<id>/*)가
+    # 죽은 링크(404)가 되지 않도록 함께 삭제한다. product_id 는 정수라 안전하다.
+    db.execute(
+        "DELETE FROM notifications WHERE link = ? OR link LIKE ?",
+        (url_for("products.detail", product_id=product_id), f"/chat/{product_id}/%"),
     )
     db.commit()
     if product["image_path"]:

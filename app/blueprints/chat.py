@@ -38,6 +38,9 @@ def inbox():
         """
         SELECT c.product_id, c.buyer_id, c.seller_id,
                pr.title AS product_title, pr.status AS product_status,
+               (SELECT o.status FROM orders o
+                WHERE o.product_id = pr.id AND o.status IN ('held', 'confirmed')
+                ORDER BY o.id DESC LIMIT 1) AS order_status,
                lm.body AS last_body, lm.created_at AS last_at,
                ou.id AS other_id, ou.display_name AS other_name
         FROM (

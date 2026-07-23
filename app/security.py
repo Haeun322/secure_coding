@@ -198,7 +198,7 @@ def init_security_headers(app):
         # 'unsafe-inline' 없이도 화면이 정상 동작한다(XSS 영향 최소화).
         resp.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
-            "img-src 'self' data:; "
+            "img-src 'self'; "
             "script-src 'self'; "
             "style-src 'self'; "
             "object-src 'none'; "

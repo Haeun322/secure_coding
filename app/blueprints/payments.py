@@ -144,7 +144,7 @@ def buy(product_id):
 
     back = url_for("products.detail", product_id=product_id)
 
-    if rate_limit(f"transfer:{me['id']}", max_calls=15, per_seconds=60):
+    if rate_limit(f"buy:{me['id']}", max_calls=15, per_seconds=60):
         flash("결제 시도가 너무 잦습니다. 잠시 후 다시 시도하세요.")
         return redirect(back)
 
@@ -315,6 +315,15 @@ def _settle_order(order_id):
         if order is None or order["status"] != "held":
             conn.execute("ROLLBACK")
             return False, "이미 처리된 주문입니다."
+        # 판매자가 (사기 등으로) 이용 제한된 경우엔 정산하지 않는다.
+        # 구매자는 거래 취소로 환불받을 수 있다.
+        seller = conn.execute(
+            "SELECT status FROM users WHERE id = ?", (order["seller_id"],)
+        ).fetchone()
+        if seller is None or seller["status"] != "active":
+            conn.execute("ROLLBACK")
+            return False, ("판매자가 이용 제한 상태여서 구매를 확정할 수 없습니다. "
+                           "거래 취소로 환불받으세요.")
         amount = order["amount"]
         if amount > 0:
             conn.execute("UPDATE users SET balance = balance + ? WHERE id = ?",

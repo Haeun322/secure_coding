@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros.html" import status_badge %}
 {% block title %}메시지{% endblock %}
 {% block content %}
 <h1>메시지</h1>
@@ -10,7 +11,7 @@
           <strong>{{ c['product_title'] }}</strong>
         </a>
         <span class="muted">· {{ c['other_name'] }}</span>
-        {% if c['product_status'] == 'sold' %}<span class="badge sold">거래완료</span>{% endif %}
+        {{ status_badge(c['product_status'], c['order_status']) }}
         <br>
         <span class="muted">{{ c['last_body'][:40] }}</span>
         <br><small class="muted">{{ c['last_at'] }}</small>

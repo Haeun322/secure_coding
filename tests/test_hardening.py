@@ -346,6 +346,137 @@ def test_escrow_cancel_refunds(app):
     assert _pstatus(app, 1) == "active"
 
 
+def test_cannot_edit_or_delete_held_product(app):
+    """결제 보류(에스크로) 중인 상품은 수정/삭제로 이중결제·대금손실을 만들 수 없다."""
+    seller = app.test_client()
+    register(seller, "hesel"); login(seller, "hesel")     # id 2
+    _create_priced_product(seller, 500, "보류중상품")       # id 1
+    buyer = app.test_client()
+    register(buyer, "hebuy"); login(buyer, "hebuy")        # id 3
+    buyer.post("/wallet/topup", data={
+        "csrf_token": csrf_from(buyer, "/wallet/"), "amount": "1000"}, follow_redirects=True)
+    buyer.post("/wallet/buy/1", data={"csrf_token": csrf_from(buyer, "/wallet/")},
+               follow_redirects=True)
+    assert _pstatus(app, 1) == "sold"       # 보류(=sold)
+    assert _balance(app, "hebuy") == 500     # 구매자 대금 보류됨
+
+    # 수정 시도 -> 판매중(active)으로 되돌아가지 않아야 한다
+    seller.post("/products/1/edit", data={
+        "csrf_token": csrf_from(seller, "/wallet/"),
+        "title": "보류중상품", "description": "d", "price": "500",
+        "category": "etc", "region": "", "status": "active",
+    }, follow_redirects=True)
+    assert _pstatus(app, 1) == "sold"
+
+    # 삭제 시도 -> 상품/주문이 사라지지 않고 대금도 그대로여야 한다
+    seller.post("/products/1/delete", data={"csrf_token": csrf_from(seller, "/wallet/")},
+                follow_redirects=True)
+    assert _pstatus(app, 1) == "sold"        # 여전히 존재
+    conn = sqlite3.connect(app.config["DATABASE"])
+    held = conn.execute("SELECT COUNT(*) FROM orders WHERE status='held'").fetchone()[0]
+    conn.close()
+    assert held == 1                          # 주문 유지
+    assert _balance(app, "hebuy") == 500      # 대금 손실 없음(환불도 아님, 보류 유지)
+
+
+def test_delete_cleans_messages_and_notifications(app):
+    """상품 삭제 시 그 상품의 메시지/알림도 정리되어 죽은 링크가 남지 않는다."""
+    seller = app.test_client()
+    register(seller, "dcsel"); login(seller, "dcsel")     # id 2
+    _create_priced_product(seller, 100, "삭제될상품")       # id 1
+    buyer = app.test_client()
+    register(buyer, "dcbuy"); login(buyer, "dcbuy")        # id 3
+    buyer.post("/chat/1/2", data={"csrf_token": csrf_from(buyer, "/wallet/"),
+                                  "body": "문의"}, follow_redirects=True)
+    # 주문이 없는 상품이므로 삭제 가능
+    seller.post("/products/1/delete", data={"csrf_token": csrf_from(seller, "/wallet/")},
+                follow_redirects=True)
+
+    conn = sqlite3.connect(app.config["DATABASE"])
+    msgs = conn.execute("SELECT COUNT(*) FROM messages WHERE product_id=1").fetchone()[0]
+    notes = conn.execute(
+        "SELECT COUNT(*) FROM notifications WHERE link LIKE '/chat/1/%' OR link='/products/1'"
+    ).fetchone()[0]
+    conn.close()
+    assert msgs == 0 and notes == 0
+
+
+def test_inbox_shows_in_progress_for_held(app):
+    """대화 목록에서 결제 보류(held) 상품은 '거래완료'가 아니라 '거래중'으로 표시."""
+    seller = app.test_client()
+    register(seller, "ibsel"); login(seller, "ibsel")     # id 2
+    _create_priced_product(seller, 100, "대화상품")         # id 1
+    buyer = app.test_client()
+    register(buyer, "ibbuy"); login(buyer, "ibbuy")        # id 3
+    buyer.post("/chat/1/2", data={"csrf_token": csrf_from(buyer, "/wallet/"),
+                                  "body": "살게요"}, follow_redirects=True)
+    buyer.post("/wallet/topup", data={
+        "csrf_token": csrf_from(buyer, "/wallet/"), "amount": "1000"}, follow_redirects=True)
+    buyer.post("/wallet/buy/1", data={"csrf_token": csrf_from(buyer, "/wallet/")},
+               follow_redirects=True)
+    inbox = seller.get("/chat/").get_data(as_text=True)
+    assert "거래중" in inbox and "거래완료" not in inbox
+
+
+def test_cannot_delete_product_with_confirmed_order(app):
+    """거래(판매) 이력이 있는 상품 삭제로 후기를 지우는 평판 조작을 막는다."""
+    seller = app.test_client()
+    register(seller, "cdsel"); login(seller, "cdsel")     # id 2
+    _create_priced_product(seller, 300, "완료상품")         # id 1
+    buyer = app.test_client()
+    register(buyer, "cdbuy"); login(buyer, "cdbuy")        # id 3
+    buyer.post("/wallet/topup", data={
+        "csrf_token": csrf_from(buyer, "/wallet/"), "amount": "1000"}, follow_redirects=True)
+    buyer.post("/wallet/buy/1", data={"csrf_token": csrf_from(buyer, "/wallet/")},
+               follow_redirects=True)
+    oid = _order_id(app, 1)
+    buyer.post(f"/wallet/orders/{oid}/confirm",
+               data={"csrf_token": csrf_from(buyer, "/wallet/")}, follow_redirects=True)
+    buyer.post(f"/wallet/orders/{oid}/review",
+               data={"csrf_token": csrf_from(buyer, "/wallet/"),
+                     "rating": "1", "comment": "별로"}, follow_redirects=True)
+
+    # 판매자가 삭제 시도 -> 막힘, 상품/후기 유지
+    seller.post("/products/1/delete", data={"csrf_token": csrf_from(seller, "/wallet/")},
+                follow_redirects=True)
+    assert _pstatus(app, 1) == "sold"
+    conn = sqlite3.connect(app.config["DATABASE"])
+    reviews = conn.execute("SELECT COUNT(*) FROM reviews").fetchone()[0]
+    conn.close()
+    assert reviews == 1
+
+
+def test_cannot_confirm_when_seller_blocked(app):
+    """판매자가 이용 제한되면 구매 확정(정산)이 막히고, 구매자는 취소로 환불받는다."""
+    admin_c = app.test_client()
+    login(admin_c, "admin", "AdminPw12345")
+    seller = app.test_client()
+    register(seller, "bsell"); login(seller, "bsell")     # id 2
+    _create_priced_product(seller, 200, "상품")            # id 1
+    buyer = app.test_client()
+    register(buyer, "bbuy"); login(buyer, "bbuy")         # id 3
+    buyer.post("/wallet/topup", data={
+        "csrf_token": csrf_from(buyer, "/wallet/"), "amount": "1000"}, follow_redirects=True)
+    buyer.post("/wallet/buy/1", data={"csrf_token": csrf_from(buyer, "/wallet/")},
+               follow_redirects=True)
+    oid = _order_id(app, 1)
+
+    # 관리자가 판매자(id 2) 차단
+    admin_c.post("/admin/users/2/block",
+                 data={"csrf_token": csrf_from(admin_c, "/admin/users")}, follow_redirects=True)
+
+    # 구매 확정 시도 -> 실패(정산 안 됨)
+    r = buyer.post(f"/wallet/orders/{oid}/confirm",
+                   data={"csrf_token": csrf_from(buyer, "/wallet/")}, follow_redirects=True)
+    assert "이용 제한" in r.get_data(as_text=True)
+    assert _balance(app, "bsell") == 0     # 판매자에게 정산되지 않음
+
+    # 취소 -> 구매자 전액 환불
+    buyer.post(f"/wallet/orders/{oid}/cancel",
+               data={"csrf_token": csrf_from(buyer, "/wallet/")}, follow_redirects=True)
+    assert _balance(app, "bbuy") == 1000
+
+
 def test_purchase_insufficient_goes_to_topup(app):
     seller = app.test_client()
     register(seller, "seller10"); login(seller, "seller10")
