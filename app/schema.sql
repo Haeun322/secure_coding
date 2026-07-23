@@ -33,12 +33,55 @@ CREATE TABLE IF NOT EXISTS products (
     description TEXT    NOT NULL,
     price       INTEGER NOT NULL CHECK (price >= 0),
     image_path  TEXT,                 -- instance/uploads 내부 파일명 (NULL 가능)
+    category    TEXT    NOT NULL DEFAULT 'etc',
+    region      TEXT    NOT NULL DEFAULT '',
     status      TEXT    NOT NULL DEFAULT 'active'
                 CHECK (status IN ('active', 'sold', 'blocked')),
     created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_products_seller ON products(seller_id);
 CREATE INDEX IF NOT EXISTS idx_products_status ON products(status);
+-- idx_products_category 는 category 컬럼 추가 후 db._migrate 에서 만든다
+-- (기존 DB는 이 시점에 아직 category 컬럼이 없기 때문).
+
+-- 찜(관심상품) ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS favorites (
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, product_id)
+);
+CREATE INDEX IF NOT EXISTS idx_fav_product ON favorites(product_id);
+
+-- 주문(에스크로) ----------------------------------------------------------
+-- 결제하면 'held'(대금 보류) 상태로 시작하고, 구매 확정 시 판매자에게 정산된다.
+CREATE TABLE IF NOT EXISTS orders (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id   INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    buyer_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    seller_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    amount       INTEGER NOT NULL CHECK (amount >= 0),
+    status       TEXT    NOT NULL DEFAULT 'held'
+                 CHECK (status IN ('held', 'confirmed', 'cancelled')),
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    confirmed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_orders_product ON orders(product_id);
+CREATE INDEX IF NOT EXISTS idx_orders_buyer ON orders(buyer_id);
+CREATE INDEX IF NOT EXISTS idx_orders_seller ON orders(seller_id);
+
+-- 거래 후기(평판) ---------------------------------------------------------
+CREATE TABLE IF NOT EXISTS reviews (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id    INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    reviewer_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    target_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    rating      INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+    comment     TEXT    NOT NULL DEFAULT '',
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(order_id, reviewer_id)
+);
+CREATE INDEX IF NOT EXISTS idx_reviews_target ON reviews(target_id);
 
 -- 1:1 메시지 ---------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS messages (

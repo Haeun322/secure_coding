@@ -15,10 +15,22 @@ from flask import (
 )
 
 from ..db import get_db
-from ..security import current_user, login_required
-from ..validators import validate_text, validate_price
+from ..security import current_user, login_required, rate_limit
+from ..validators import (
+    validate_text, validate_price, validate_category, validate_region,
+)
+from ..constants import SORTS, DEFAULT_SORT
 
 bp = Blueprint("products", __name__, url_prefix="/products")
+
+
+def reputation(db, user_id):
+    """사용자의 평판(받은 후기 평균 별점 + 개수)."""
+    row = db.execute(
+        "SELECT COUNT(*) AS c, COALESCE(AVG(rating), 0) AS a FROM reviews WHERE target_id = ?",
+        (user_id,),
+    ).fetchone()
+    return {"count": row["c"], "avg": round(row["a"], 1)}
 
 # 허용 이미지 형식: 확장자와 매직바이트(파일 시그니처)를 함께 검사한다.
 ALLOWED_IMAGE = {
@@ -80,6 +92,11 @@ def listing():
     검색어는 LIKE 파라미터 바인딩으로 처리한다(SQL Injection 방지).
     """
     q = (request.args.get("q") or "").strip()[:SEARCH_MAX_LEN]
+    category = (request.args.get("category") or "").strip()
+    region = (request.args.get("region") or "").strip()[:30]
+    sort = request.args.get("sort", DEFAULT_SORT)
+    if sort not in SORTS:
+        sort = DEFAULT_SORT
 
     # 페이지 번호 파싱(1 미만/비정상 값은 1로 보정)
     try:
@@ -92,7 +109,7 @@ def listing():
 
     db = get_db()
 
-    # 공통 WHERE 절과 파라미터를 검색 여부에 따라 구성
+    # 공통 WHERE 절과 파라미터를 조건에 따라 구성 (모두 파라미터 바인딩)
     where = "p.status = 'active' AND u.status = 'active'"
     params = []
     if q:
@@ -101,19 +118,34 @@ def listing():
         like = f"%{safe}%"
         where += " AND (p.title LIKE ? ESCAPE '\\' OR p.description LIKE ? ESCAPE '\\')"
         params += [like, like]
+    if category:
+        # 정해진 카테고리 키만 허용
+        from ..constants import CATEGORY_KEYS
+        if category in CATEGORY_KEYS:
+            where += " AND p.category = ?"
+            params.append(category)
+        else:
+            category = ""
+    if region:
+        safe_r = region.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        where += " AND p.region LIKE ? ESCAPE '\\'"
+        params.append(f"%{safe_r}%")
 
     total = db.execute(
         f"SELECT COUNT(*) AS c FROM products p JOIN users u ON u.id = p.seller_id WHERE {where}",
         params,
     ).fetchone()["c"]
 
+    # 정렬은 화이트리스트에서 가져온 고정 문자열만 사용(ORDER BY 인젝션 방지)
+    order_by = SORTS[sort][1]
     rows = db.execute(
         f"""
-        SELECT p.id, p.title, p.price, p.image_path, p.created_at,
-               u.display_name AS seller_name
+        SELECT p.id, p.title, p.price, p.image_path, p.created_at, p.region,
+               u.display_name AS seller_name,
+               (SELECT COUNT(*) FROM favorites f WHERE f.product_id = p.id) AS fav_count
         FROM products p JOIN users u ON u.id = p.seller_id
         WHERE {where}
-        ORDER BY p.created_at DESC, p.id DESC
+        ORDER BY {order_by}
         LIMIT ? OFFSET ?
         """,
         params + [PAGE_SIZE, offset],
@@ -123,6 +155,7 @@ def listing():
     return render_template(
         "products/list.html",
         products=rows, q=q, page=page, total_pages=total_pages, total=total,
+        category=category, region=region, sort=sort,
     )
 
 
@@ -149,8 +182,38 @@ def detail(product_id):
             and not (is_owner or is_admin):
         abort(404)
 
+    # 찜 상태/개수
+    fav_count = db.execute(
+        "SELECT COUNT(*) AS c FROM favorites WHERE product_id = ?", (product_id,)
+    ).fetchone()["c"]
+    favorited = False
+    if user is not None:
+        favorited = db.execute(
+            "SELECT 1 FROM favorites WHERE user_id = ? AND product_id = ?",
+            (user["id"], product_id),
+        ).fetchone() is not None
+
+    # 이 상품의 진행 중/완료된 주문(에스크로) — 취소된 건 제외, 최신 1건
+    order = db.execute(
+        """SELECT * FROM orders WHERE product_id = ? AND status IN ('held', 'confirmed')
+           ORDER BY id DESC LIMIT 1""",
+        (product_id,),
+    ).fetchone()
+
+    my_review = None
+    if order is not None and order["status"] == "confirmed" and user is not None \
+            and user["id"] == order["buyer_id"]:
+        my_review = db.execute(
+            "SELECT id FROM reviews WHERE order_id = ? AND reviewer_id = ?",
+            (order["id"], user["id"]),
+        ).fetchone()
+
+    seller_rep = reputation(db, product["seller_id"])
+
     return render_template("products/detail.html", product=product,
-                           is_owner=is_owner, is_admin=is_admin)
+                           is_owner=is_owner, is_admin=is_admin,
+                           fav_count=fav_count, favorited=favorited,
+                           order=order, my_review=my_review, seller_rep=seller_rep)
 
 
 @bp.route("/new", methods=("GET", "POST"))
@@ -161,6 +224,8 @@ def create():
             title = validate_text(request.form.get("title"), "product_title")
             description = validate_text(request.form.get("description"), "product_description")
             price = validate_price(request.form.get("price"))
+            category = validate_category(request.form.get("category"))
+            region = validate_region(request.form.get("region"))
             image_name = _save_image(request.files.get("image"))
         except ValueError as exc:
             flash(str(exc))
@@ -168,9 +233,11 @@ def create():
 
         db = get_db()
         cur = db.execute(
-            """INSERT INTO products (seller_id, title, description, price, image_path)
-               VALUES (?, ?, ?, ?, ?)""",
-            (current_user()["id"], title, description, price, image_name),
+            """INSERT INTO products (seller_id, title, description, price,
+                                     category, region, image_path)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (current_user()["id"], title, description, price,
+             category, region, image_name),
         )
         db.commit()
         flash("상품을 등록했습니다.")
@@ -200,6 +267,8 @@ def edit(product_id):
             title = validate_text(request.form.get("title"), "product_title")
             description = validate_text(request.form.get("description"), "product_description")
             price = validate_price(request.form.get("price"))
+            category = validate_category(request.form.get("category"))
+            region = validate_region(request.form.get("region"))
             status = request.form.get("status", "active")
             if status not in ("active", "sold"):
                 raise ValueError("잘못된 상태값입니다.")
@@ -211,9 +280,10 @@ def edit(product_id):
 
         image_name = new_image if new_image else product["image_path"]
         db.execute(
-            """UPDATE products SET title=?, description=?, price=?, status=?, image_path=?
+            """UPDATE products SET title=?, description=?, price=?, category=?,
+                                   region=?, status=?, image_path=?
                WHERE id = ? AND seller_id = ?""",
-            (title, description, price, status, image_name,
+            (title, description, price, category, region, status, image_name,
              product_id, current_user()["id"]),
         )
         db.commit()
@@ -255,6 +325,61 @@ def delete(product_id):
         _remove_image(product["image_path"])
     flash("상품을 삭제했습니다.")
     return redirect(url_for("main.index"))
+
+
+@bp.route("/favorites")
+@login_required
+def favorites():
+    """내 관심목록(찜한 상품)."""
+    me = current_user()
+    rows = get_db().execute(
+        """
+        SELECT p.id, p.title, p.price, p.image_path, p.status, p.region,
+               u.display_name AS seller_name
+        FROM favorites f
+        JOIN products p ON p.id = f.product_id
+        JOIN users u ON u.id = p.seller_id
+        WHERE f.user_id = ?
+        ORDER BY f.created_at DESC
+        """,
+        (me["id"],),
+    ).fetchall()
+    return render_template("products/favorites.html", products=rows)
+
+
+@bp.route("/<int:product_id>/favorite", methods=("POST",))
+@login_required
+def toggle_favorite(product_id):
+    """찜 토글(있으면 해제, 없으면 추가)."""
+    me = current_user()
+    db = get_db()
+    product = db.execute(
+        "SELECT id, seller_id FROM products WHERE id = ?", (product_id,)
+    ).fetchone()
+    if product is None:
+        abort(404)
+    if product["seller_id"] == me["id"]:
+        flash("본인 상품은 찜할 수 없습니다.")
+        return redirect(url_for("products.detail", product_id=product_id))
+
+    if rate_limit(f"fav:{me['id']}", max_calls=60, per_seconds=60):
+        flash("요청이 너무 잦습니다. 잠시 후 다시 시도하세요.")
+        return redirect(url_for("products.detail", product_id=product_id))
+
+    exists = db.execute(
+        "SELECT 1 FROM favorites WHERE user_id = ? AND product_id = ?",
+        (me["id"], product_id),
+    ).fetchone()
+    if exists:
+        db.execute("DELETE FROM favorites WHERE user_id = ? AND product_id = ?",
+                   (me["id"], product_id))
+        flash("찜을 해제했습니다.")
+    else:
+        db.execute("INSERT INTO favorites (user_id, product_id) VALUES (?, ?)",
+                   (me["id"], product_id))
+        flash("찜했습니다.")
+    db.commit()
+    return redirect(url_for("products.detail", product_id=product_id))
 
 
 @bp.route("/image/<path:filename>")

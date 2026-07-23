@@ -257,11 +257,12 @@ def test_concurrent_transfers_no_double_spend(app):
     assert cnt == 1                            # 원장도 1건
 
 
-# --- 상품 가격만큼 자동 결제 ----------------------------------------------
-def _create_priced_product(client, price, title="상품"):
+# --- 에스크로 결제 / 상품 가격 자동 결제 ----------------------------------
+def _create_priced_product(client, price, title="상품", category="etc", region=""):
     token = csrf_from(client, "/products/new")
     client.post("/products/new", data={
-        "csrf_token": token, "title": title, "description": "설명", "price": str(price),
+        "csrf_token": token, "title": title, "description": "설명",
+        "price": str(price), "category": category, "region": region,
     }, follow_redirects=True)
 
 
@@ -279,25 +280,70 @@ def _pstatus(app, pid):
     return v
 
 
-def test_purchase_charges_exactly_product_price(app):
+def _order_id(app, product_id):
+    conn = sqlite3.connect(app.config["DATABASE"])
+    row = conn.execute("SELECT id FROM orders WHERE product_id=? ORDER BY id DESC LIMIT 1",
+                       (product_id,)).fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def test_escrow_hold_confirm_and_review(app):
     seller = app.test_client()
-    register(seller, "seller9"); login(seller, "seller9")
-    _create_priced_product(seller, 134, "싼물건")     # product id 1
-
+    register(seller, "esell"); login(seller, "esell")
+    _create_priced_product(seller, 134, "싼물건")      # id 1
     buyer = app.test_client()
-    register(buyer, "buyer9"); login(buyer, "buyer9")
+    register(buyer, "ebuy"); login(buyer, "ebuy")
     buyer.post("/wallet/topup", data={
-        "csrf_token": csrf_from(buyer, "/wallet/"), "amount": "10000"},
-        follow_redirects=True)
+        "csrf_token": csrf_from(buyer, "/wallet/"), "amount": "10000"}, follow_redirects=True)
 
-    r = buyer.post("/wallet/buy/1", data={
-        "csrf_token": csrf_from(buyer, "/wallet/")}, follow_redirects=True)
-    assert "결제가 완료" in r.get_data(as_text=True)
-
-    # 1만원 넣어도 딱 134원만 빠져야 한다
-    assert _balance(app, "buyer9") == 10000 - 134
-    assert _balance(app, "seller9") == 134
+    # 결제 -> 보류: 1만원 넣어도 딱 134원만, 판매자에겐 아직 정산 안 됨
+    r = buyer.post("/wallet/buy/1", data={"csrf_token": csrf_from(buyer, "/wallet/")},
+                   follow_redirects=True)
+    assert "보류" in r.get_data(as_text=True)
+    assert _balance(app, "ebuy") == 10000 - 134
+    assert _balance(app, "esell") == 0
     assert _pstatus(app, 1) == "sold"
+    oid = _order_id(app, 1)
+
+    # 구매 확정 -> 판매자 정산
+    r = buyer.post(f"/wallet/orders/{oid}/confirm",
+                   data={"csrf_token": csrf_from(buyer, "/wallet/")}, follow_redirects=True)
+    assert "확정" in r.get_data(as_text=True)
+    assert _balance(app, "esell") == 134
+
+    # 후기 작성 -> 판매자 평판 반영
+    r = buyer.post(f"/wallet/orders/{oid}/review",
+                   data={"csrf_token": csrf_from(buyer, "/wallet/"),
+                         "rating": "5", "comment": "좋아요"}, follow_redirects=True)
+    assert "후기" in r.get_data(as_text=True)
+    conn = sqlite3.connect(app.config["DATABASE"])
+    sid = conn.execute("SELECT id FROM users WHERE username='esell'").fetchone()[0]
+    conn.close()
+    assert "평판" in buyer.get(f"/auth/user/{sid}").get_data(as_text=True)
+
+
+def test_escrow_cancel_refunds(app):
+    seller = app.test_client()
+    register(seller, "csell"); login(seller, "csell")
+    _create_priced_product(seller, 300, "의자")        # id 1
+    buyer = app.test_client()
+    register(buyer, "cbuy"); login(buyer, "cbuy")
+    buyer.post("/wallet/topup", data={
+        "csrf_token": csrf_from(buyer, "/wallet/"), "amount": "1000"}, follow_redirects=True)
+
+    buyer.post("/wallet/buy/1", data={"csrf_token": csrf_from(buyer, "/wallet/")},
+               follow_redirects=True)
+    assert _balance(app, "cbuy") == 700
+    assert _pstatus(app, 1) == "sold"
+    oid = _order_id(app, 1)
+
+    # 취소 -> 전액 환불, 상품 다시 판매중
+    r = buyer.post(f"/wallet/orders/{oid}/cancel",
+                   data={"csrf_token": csrf_from(buyer, "/wallet/")}, follow_redirects=True)
+    assert "환불" in r.get_data(as_text=True)
+    assert _balance(app, "cbuy") == 1000
+    assert _pstatus(app, 1) == "active"
 
 
 def test_purchase_insufficient_goes_to_topup(app):
@@ -329,7 +375,7 @@ def test_cannot_buy_own_product(app):
     assert _pstatus(app, 1) == "active"
 
 
-def test_cannot_buy_already_sold_product(app):
+def test_cannot_buy_already_reserved_product(app):
     seller = app.test_client()
     register(seller, "seller11"); login(seller, "seller11")
     _create_priced_product(seller, 100, "한정판")     # id 1
@@ -348,15 +394,14 @@ def test_cannot_buy_already_sold_product(app):
     r = b2.post("/wallet/buy/1", data={"csrf_token": csrf_from(b2, "/wallet/")},
                 follow_redirects=True)
     assert "이미 판매" in r.get_data(as_text=True)
-    assert _balance(app, "buyerB") == 1000    # 두 번째 구매자는 돈이 안 빠짐
-    assert _balance(app, "seller11") == 100   # 판매자는 한 번만 받음
+    assert _balance(app, "buyerB") == 1000     # 두 번째 구매자는 돈이 안 빠짐
+    assert _balance(app, "seller11") == 0      # 확정 전이라 판매자도 0
 
 
-def test_concurrent_purchase_single_winner(app):
-    """세 명이 동시에 같은 상품을 결제해도 한 명만 성공하고,
-    판매자는 상품 가격을 한 번만 받아야 한다(중복 판매 방지)."""
+def test_concurrent_hold_single_winner(app):
+    """세 명이 동시에 같은 상품을 결제해도 한 명만 대금 보류에 성공한다(중복 판매 방지)."""
     import threading
-    from app.blueprints.payments import _do_purchase
+    from app.blueprints.payments import _do_hold
     from app.db import get_write_connection
 
     with app.app_context():
@@ -380,7 +425,7 @@ def test_concurrent_purchase_single_winner(app):
 
     def worker(bid):
         with app.app_context():
-            status, _, _ = _do_purchase(bid, pid)
+            status, _, _ = _do_hold(bid, pid)
         with lock:
             results.append(status)
 
@@ -394,14 +439,57 @@ def test_concurrent_purchase_single_winner(app):
         db = get_write_connection()
         st = db.execute("SELECT status FROM products WHERE id=?", (pid,)).fetchone()[0]
         sbal = db.execute("SELECT balance FROM users WHERE id=?", (sid,)).fetchone()[0]
-        ledger = db.execute("SELECT COUNT(*) FROM transfers WHERE receiver_id=?",
-                            (sid,)).fetchone()[0]
+        held = db.execute("SELECT COUNT(*) FROM orders WHERE product_id=? AND status='held'",
+                          (pid,)).fetchone()[0]
+        transfers = db.execute("SELECT COUNT(*) FROM transfers").fetchone()[0]
         db.close()
 
     assert results.count("ok") == 1     # 정확히 한 명만 성공
-    assert st == "sold"
-    assert sbal == 100                  # 판매자는 한 번만 받음
-    assert ledger == 1                  # 원장도 1건
+    assert st == "sold"                 # 거래중
+    assert held == 1                    # 보류 주문 1건뿐
+    assert sbal == 0                    # 확정 전이라 정산 없음
+    assert transfers == 0               # 정산(원장)도 아직 없음
+
+
+# --- 찜(관심상품) ---------------------------------------------------------
+def test_favorite_toggle(app):
+    seller = app.test_client()
+    register(seller, "fsell"); login(seller, "fsell")
+    _create_priced_product(seller, 100, "찜상품")     # id 1
+    buyer = app.test_client()
+    register(buyer, "fbuy"); login(buyer, "fbuy")
+
+    buyer.post("/products/1/favorite", data={"csrf_token": csrf_from(buyer, "/wallet/")},
+               follow_redirects=True)
+    assert "찜상품" in buyer.get("/products/favorites").get_data(as_text=True)
+
+    buyer.post("/products/1/favorite", data={"csrf_token": csrf_from(buyer, "/wallet/")},
+               follow_redirects=True)
+    assert "찜상품" not in buyer.get("/products/favorites").get_data(as_text=True)
+
+    # 본인 상품은 찜 불가
+    r = seller.post("/products/1/favorite", data={"csrf_token": csrf_from(seller, "/wallet/")},
+                    follow_redirects=True)
+    assert "본인 상품" in r.get_data(as_text=True)
+
+
+# --- 카테고리 필터 + 정렬 -------------------------------------------------
+def test_category_filter_and_sort(app):
+    seller = app.test_client()
+    register(seller, "catsel"); login(seller, "catsel")
+    _create_priced_product(seller, 500000, "노트북", category="digital")
+    _create_priced_product(seller, 20000, "청바지", category="clothing")
+    _create_priced_product(seller, 80000, "책상", category="furniture")
+
+    # 카테고리 필터
+    r = seller.get("/products/?category=clothing").get_data(as_text=True)
+    assert "청바지" in r and "노트북" not in r
+    # 잘못된 카테고리는 무시(전체 노출)
+    r2 = seller.get("/products/?category=hacker").get_data(as_text=True)
+    assert "노트북" in r2 and "청바지" in r2
+    # 가격 낮은순 정렬: 청바지(2만) 가 노트북(50만) 보다 앞
+    r3 = seller.get("/products/?sort=price_asc").get_data(as_text=True)
+    assert r3.index("청바지") < r3.index("노트북")
 
 
 # --- 금액 파서 엄격성(단위 테스트) ----------------------------------------

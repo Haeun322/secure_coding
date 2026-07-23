@@ -6,6 +6,8 @@ JS 검증은 우회 가능하므로, 여기 있는 함수들이 최종 관문이
 """
 import re
 
+from .constants import CATEGORY_KEYS
+
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,20}$")
 
 # 금액 문자열은 ASCII 숫자만 허용한다. int() 는 전각숫자('１２３')나 유니코드
@@ -29,6 +31,8 @@ LIMITS = {
     "message_body": 1000,
     "report_reason": 500,
     "transfer_memo": 100,
+    "review_comment": 300,
+    "region": 30,
 }
 
 # 금액 상한(원). 정수 오버플로 및 비현실적 값 차단.
@@ -107,3 +111,27 @@ def validate_price(value):
     if price > MAX_AMOUNT:
         raise ValueError("가격이 너무 큽니다.")
     return price
+
+
+def validate_category(value):
+    """카테고리는 정해진 목록 안에서만 허용(임의 값 저장 방지)."""
+    value = (value or "etc").strip()
+    if value not in CATEGORY_KEYS:
+        raise ValueError("올바른 카테고리를 선택하세요.")
+    return value
+
+
+def validate_region(value):
+    """거래 지역(동네). 비워도 되고, 길이만 제한한다."""
+    return validate_text(value, "region", allow_empty=True)
+
+
+def validate_rating(value):
+    """후기 별점 1~5."""
+    try:
+        rating = int(value)
+    except (TypeError, ValueError):
+        raise ValueError("별점을 선택하세요.")
+    if rating < 1 or rating > 5:
+        raise ValueError("별점은 1~5 사이여야 합니다.")
+    return rating

@@ -59,7 +59,23 @@ def init_db():
     schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
     with open(schema_path, "r", encoding="utf-8") as fh:
         db.executescript(fh.read())
+    _migrate(db)
     db.commit()
+
+
+def _migrate(db):
+    """기존 DB에 없는 컬럼을 안전하게 추가한다(데이터 보존).
+
+    CREATE TABLE IF NOT EXISTS 는 기존 테이블의 컬럼을 바꾸지 못하므로,
+    나중에 추가된 컬럼은 여기서 ALTER TABLE 로 채운다. 이미 있으면 건너뛴다.
+    """
+    product_cols = {row["name"] for row in db.execute("PRAGMA table_info(products)")}
+    if "category" not in product_cols:
+        db.execute("ALTER TABLE products ADD COLUMN category TEXT NOT NULL DEFAULT 'etc'")
+    if "region" not in product_cols:
+        db.execute("ALTER TABLE products ADD COLUMN region TEXT NOT NULL DEFAULT ''")
+    # category 컬럼이 확실히 있는 지금 시점에 인덱스를 만든다.
+    db.execute("CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)")
 
 
 def init_app(app):

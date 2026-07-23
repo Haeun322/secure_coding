@@ -4,6 +4,8 @@
 <div class="card">
   {% if product['status'] == 'blocked' %}
     <p><span class="badge blocked">차단된 상품</span></p>
+  {% elif order and order['status'] == 'held' %}
+    <p><span class="badge sold">거래중(결제 보류)</span></p>
   {% elif product['status'] == 'sold' %}
     <p><span class="badge sold">판매완료</span></p>
   {% endif %}
@@ -15,14 +17,91 @@
 
   <h1>{{ product['title'] }}</h1>
   <p class="price price-lg">{{ '{:,}'.format(product['price']) }}원</p>
+  <p class="muted">
+    {{ CATEGORIES.get(product['category'], '기타') }}
+    {% if product['region'] %} · {{ product['region'] }}{% endif %}
+    · ♥ 찜 {{ fav_count }}
+  </p>
   <p>판매자:
     <a href="{{ url_for('auth.profile', user_id=product['seller_id']) }}">{{ product['seller_name'] }}</a>
+    {% if seller_rep and seller_rep['count'] > 0 %}
+      <span class="muted">— ⭐ {{ seller_rep['avg'] }} (후기 {{ seller_rep['count'] }})</span>
+    {% else %}
+      <span class="muted">— 후기 없음</span>
+    {% endif %}
   </p>
 
   <!-- 사용자 입력은 Jinja2 자동 이스케이프로 안전하게 출력. 줄바꿈만 유지 -->
   <p class="pre-wrap">{{ product['description'] }}</p>
 
-  <div class="actions">
+  {# ---------- 찜 버튼 (본인 상품 제외, 로그인 필요) ---------- #}
+  {% if current_user and not is_owner %}
+    <form method="post" action="{{ url_for('products.toggle_favorite', product_id=product['id']) }}" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit">{% if favorited %}♥ 찜 해제{% else %}♡ 찜하기{% endif %}</button>
+    </form>
+  {% endif %}
+
+  {# ---------- 에스크로 거래 상태 ---------- #}
+  {% if order and order['status'] == 'held' %}
+    <div class="card mt">
+      {% if current_user and current_user['id'] == order['buyer_id'] %}
+        <p>결제 대금 <strong>{{ '{:,}'.format(order['amount']) }}원</strong>이 보류 중입니다.
+           물건을 받으셨다면 구매를 확정해 주세요. 확정하면 판매자에게 정산됩니다.</p>
+        <div class="actions">
+          <form method="post" action="{{ url_for('payments.confirm_order', order_id=order['id']) }}" class="inline"
+                data-confirm="구매를 확정하고 판매자에게 정산할까요?">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit">구매 확정</button>
+          </form>
+          <form method="post" action="{{ url_for('payments.cancel_order', order_id=order['id']) }}" class="inline"
+                data-confirm="거래를 취소하고 환불받을까요?">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="danger">거래 취소(환불)</button>
+          </form>
+        </div>
+      {% elif current_user and current_user['id'] == order['seller_id'] %}
+        <p>구매자가 <strong>{{ '{:,}'.format(order['amount']) }}원</strong>을 결제(보류)했습니다.
+           물건 전달 후 구매자가 확정하면 정산됩니다.</p>
+        <form method="post" action="{{ url_for('payments.cancel_order', order_id=order['id']) }}" class="inline"
+              data-confirm="거래를 취소하고 구매자에게 환불할까요?">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="danger">거래 취소(환불)</button>
+        </form>
+      {% else %}
+        <p class="muted">현재 거래가 진행 중인 상품입니다.</p>
+      {% endif %}
+    </div>
+  {% elif order and order['status'] == 'confirmed' %}
+    <div class="card mt">
+      <p><span class="badge active">거래 완료</span></p>
+      {% if current_user and current_user['id'] == order['buyer_id'] and not my_review %}
+        <h3>거래 후기 남기기</h3>
+        <form method="post" action="{{ url_for('payments.review_order', order_id=order['id']) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="form-row">
+            <label for="rating">별점</label>
+            <select id="rating" name="rating">
+              <option value="5">★★★★★ (5)</option>
+              <option value="4">★★★★ (4)</option>
+              <option value="3">★★★ (3)</option>
+              <option value="2">★★ (2)</option>
+              <option value="1">★ (1)</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label for="comment">한줄 후기(선택)</label>
+            <input id="comment" name="comment" maxlength="300" placeholder="거래는 어떠셨나요?">
+          </div>
+          <button type="submit">후기 남기기</button>
+        </form>
+      {% elif current_user and current_user['id'] == order['buyer_id'] and my_review %}
+        <p class="muted">이미 후기를 남긴 거래입니다. 고맙습니다!</p>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <div class="actions mt">
     {% if is_owner %}
       <a href="{{ url_for('products.edit', product_id=product['id']) }}"><button type="button">수정</button></a>
       <form method="post" action="{{ url_for('products.delete', product_id=product['id']) }}" class="inline"

@@ -49,10 +49,16 @@ def create_app(test_config=None):
     app.register_blueprint(reports.bp)
     app.register_blueprint(admin.bp)
 
-    # 템플릿 전역: 현재 사용자
+    # 템플릿 전역: 현재 사용자 + 카테고리/정렬 상수
+    from .constants import CATEGORIES, SORTS
+
     @app.context_processor
-    def inject_user():
-        return {"current_user": current_user()}
+    def inject_globals():
+        return {
+            "current_user": current_user(),
+            "CATEGORIES": CATEGORIES,
+            "SORTS": SORTS,
+        }
 
     # 에러 페이지
     @app.errorhandler(403)

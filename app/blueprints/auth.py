@@ -221,4 +221,16 @@ def profile(user_id):
            ORDER BY created_at DESC""",
         (user_id,),
     ).fetchall()
-    return render_template("auth/profile.html", profile=user, products=products)
+
+    # 평판(받은 후기) + 최근 후기 목록
+    from .products import reputation
+    rep = reputation(db, user_id)
+    reviews = db.execute(
+        """SELECT r.rating, r.comment, r.created_at, u.display_name AS reviewer_name
+           FROM reviews r JOIN users u ON u.id = r.reviewer_id
+           WHERE r.target_id = ?
+           ORDER BY r.created_at DESC LIMIT 20""",
+        (user_id,),
+    ).fetchall()
+    return render_template("auth/profile.html", profile=user, products=products,
+                           rep=rep, reviews=reviews)

@@ -2,6 +2,24 @@
 {% block title %}{% if q %}"{{ q }}" 검색 결과{% else %}상품 목록{% endif %}{% endblock %}
 {% block content %}
 <h1>{% if q %}"{{ q }}" 검색 결과{% else %}전체 상품{% endif %}</h1>
+
+<form class="filterbar" method="get" action="{{ url_for('products.listing') }}">
+  {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+  <select name="category" data-autosubmit>
+    <option value="">전체 카테고리</option>
+    {% for key, label in CATEGORIES.items() %}
+      <option value="{{ key }}" {% if category == key %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <input type="text" name="region" value="{{ region }}" placeholder="지역(동네)" maxlength="30">
+  <select name="sort" data-autosubmit>
+    {% for key, meta in SORTS.items() %}
+      <option value="{{ key }}" {% if sort == key %}selected{% endif %}>{{ meta[0] }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit">적용</button>
+</form>
+
 {% if total is defined %}<p class="muted">전체 {{ total }}개</p>{% endif %}
 {% if products %}
   <div class="grid">
@@ -13,7 +31,10 @@
         <div class="body">
           <div>{{ p['title'] }}</div>
           <div class="price">{{ '{:,}'.format(p['price']) }}원</div>
-          <div class="muted">{{ p['seller_name'] }}</div>
+          <div class="muted">
+            {{ p['seller_name'] }}{% if p['region'] %} · {{ p['region'] }}{% endif %}
+            {% if p['fav_count'] %} · ♥ {{ p['fav_count'] }}{% endif %}
+          </div>
         </div>
       </a>
     {% endfor %}
@@ -22,13 +43,13 @@
   {% if total_pages and total_pages > 1 %}
     <nav class="pager">
       {% if page > 1 %}
-        <a href="{{ url_for('products.listing', q=q, page=page-1) }}">이전</a>
+        <a href="{{ url_for('products.listing', q=q, category=category, region=region, sort=sort, page=page-1) }}">이전</a>
       {% else %}
         <span class="disabled">이전</span>
       {% endif %}
       <span class="current">{{ page }} / {{ total_pages }}</span>
       {% if page < total_pages %}
-        <a href="{{ url_for('products.listing', q=q, page=page+1) }}">다음</a>
+        <a href="{{ url_for('products.listing', q=q, category=category, region=region, sort=sort, page=page+1) }}">다음</a>
       {% else %}
         <span class="disabled">다음</span>
       {% endif %}

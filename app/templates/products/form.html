@@ -12,9 +12,23 @@
              value="{{ form.title if form else (product['title'] if product else '') }}">
     </div>
     <div class="form-row">
-      <label for="price">가격(원)</label>
+      <label for="price">가격(원) <span class="muted">0원이면 나눔</span></label>
       <input id="price" name="price" type="number" min="0" step="1" required
              value="{{ form.price if form else (product['price'] if product else '') }}">
+    </div>
+    <div class="form-row">
+      <label for="category">카테고리</label>
+      {% set cur_cat = form.category if form else (product['category'] if product else 'etc') %}
+      <select id="category" name="category">
+        {% for key, label in CATEGORIES.items() %}
+          <option value="{{ key }}" {% if cur_cat == key %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-row">
+      <label for="region">거래 지역(동네) <span class="muted">선택</span></label>
+      <input id="region" name="region" maxlength="30" placeholder="예: 역삼동"
+             value="{{ form.region if form else (product['region'] if product else '') }}">
     </div>
     <div class="form-row">
       <label for="description">설명</label>

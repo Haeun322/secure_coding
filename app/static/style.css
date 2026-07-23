@@ -96,6 +96,15 @@ th { background: #f0f2f5; }
 .pay-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .pay-row input[type="text"], .pay-row input[type="password"] { flex: 1; min-width: 140px; }
 
+/* 상품 목록 필터바 */
+.filterbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
+.filterbar input[type="text"] { min-width: 120px; }
+
+/* 평판/후기 */
+.rep { color: #b8860b; }
+.review { padding: 10px 0; border-bottom: 1px solid #eef0f3; }
+.review:last-child { border-bottom: none; }
+
 /* 유틸리티 클래스: 인라인 style 속성을 없애 CSP(style-src 'self')를 지키기 위함 */
 .narrow { max-width: 480px; margin: 0 auto; }
 .wide-form { max-width: 560px; margin: 0 auto; }

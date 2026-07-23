@@ -4,6 +4,13 @@
 <div class="card">
   <h1>{{ profile['display_name'] }}</h1>
   <p class="muted">@{{ profile['username'] }} · 가입일 {{ profile['created_at'] }}</p>
+  <p class="rep">
+    {% if rep and rep['count'] > 0 %}
+      평판 <strong>⭐ {{ rep['avg'] }}</strong> / 5 · 후기 {{ rep['count'] }}개
+    {% else %}
+      아직 받은 후기가 없습니다.
+    {% endif %}
+  </p>
   {% if profile['bio'] %}<p>{{ profile['bio'] }}</p>{% endif %}
   {% if current_user and current_user['id'] != profile['id'] %}
     <div class="actions">
@@ -12,6 +19,19 @@
     </div>
   {% endif %}
 </div>
+
+{% if reviews %}
+<div class="card">
+  <h2>거래 후기</h2>
+  {% for r in reviews %}
+    <div class="review">
+      <div>{% for _ in range(r['rating']) %}★{% endfor %}{% for _ in range(5 - r['rating']) %}☆{% endfor %}
+        <span class="muted">· {{ r['reviewer_name'] }} · {{ r['created_at'] }}</span></div>
+      {% if r['comment'] %}<div class="pre-wrap">{{ r['comment'] }}</div>{% endif %}
+    </div>
+  {% endfor %}
+</div>
+{% endif %}
 
 <h2>판매 중인 상품</h2>
 {% if products %}

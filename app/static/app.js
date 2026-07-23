@@ -8,4 +8,11 @@ document.addEventListener('DOMContentLoaded', function () {
       }
     });
   });
+
+  // data-autosubmit: 값이 바뀌면 소속 폼을 자동 제출(필터/정렬 편의)
+  document.querySelectorAll('[data-autosubmit]').forEach(function (el) {
+    el.addEventListener('change', function () {
+      if (el.form) { el.form.submit(); }
+    });
+  });
 });
