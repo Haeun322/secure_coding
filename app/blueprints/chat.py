@@ -12,6 +12,7 @@ from flask import (
     Blueprint,
     abort,
     flash,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -62,12 +63,12 @@ def inbox():
     return render_template("chat/inbox.html", conversations=rows, me_id=me)
 
 
-@bp.route("/<int:product_id>/<int:peer_id>", methods=("GET", "POST"))
-@login_required
-def thread(product_id, peer_id):
-    me = current_user()
-    db = get_db()
+def _resolve_conversation(db, product_id, peer_id, me):
+    """(상품, 구매자id, 판매자id, 상대row) 를 돌려주며 당사자 여부를 검증한다.
 
+    - 나는 판매자이거나(상대=구매자), 상대가 판매자이거나(나=구매자) 둘 중 하나여야 한다.
+    - 그 외에는 403(제3자), 자기 상품/자기 자신은 400.
+    """
     product = db.execute(
         "SELECT id, title, seller_id, status FROM products WHERE id = ?",
         (product_id,),
@@ -75,24 +76,30 @@ def thread(product_id, peer_id):
     if product is None:
         abort(404)
     seller_id = product["seller_id"]
-
-    # 역할 판별 + 당사자 검증
     if me["id"] == seller_id:
-        buyer_id = peer_id              # 내가 판매자 -> 상대가 구매자
+        buyer_id = peer_id
     elif peer_id == seller_id:
-        buyer_id = me["id"]             # 내가 구매자 -> 상대가 판매자
+        buyer_id = me["id"]
     else:
-        abort(403)                      # 이 상품 대화의 당사자가 아님
+        abort(403)
     if buyer_id == seller_id:
-        flash("본인 상품에는 대화를 시작할 수 없습니다.")
-        return redirect(url_for("products.detail", product_id=product_id))
-
+        abort(400)
     other_id = seller_id if me["id"] == buyer_id else buyer_id
     other = db.execute(
         "SELECT id, display_name, status FROM users WHERE id = ?", (other_id,)
     ).fetchone()
     if other is None or other["status"] != "active":
         abort(404)
+    return product, buyer_id, seller_id, other
+
+
+@bp.route("/<int:product_id>/<int:peer_id>", methods=("GET", "POST"))
+@login_required
+def thread(product_id, peer_id):
+    me = current_user()
+    db = get_db()
+    product, buyer_id, seller_id, other = _resolve_conversation(db, product_id, peer_id, me)
+    other_id = other["id"]
 
     if request.method == "POST":
         if rate_limit(f"msg:{me['id']}", max_calls=20, per_seconds=60):
@@ -130,3 +137,35 @@ def thread(product_id, peer_id):
     ).fetchall()
     return render_template("chat/thread.html", messages=messages, other=other,
                            me_id=me["id"], product=product)
+
+
+@bp.route("/<int:product_id>/<int:peer_id>/messages")
+@login_required
+def messages_json(product_id, peer_id):
+    """대화방의 새 메시지(after id 이후)를 JSON 으로 준다. app.js 실시간 갱신용.
+
+    접근 통제는 thread 와 동일한 _resolve_conversation 을 재사용한다.
+    """
+    me = current_user()
+    db = get_db()
+    product, buyer_id, seller_id, other = _resolve_conversation(db, product_id, peer_id, me)
+
+    try:
+        after = int(request.args.get("after", "0"))
+    except ValueError:
+        after = 0
+
+    rows = db.execute(
+        """
+        SELECT id, sender_id, body, created_at FROM messages
+        WHERE product_id = ? AND id > ?
+          AND ((sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?))
+        ORDER BY id ASC LIMIT 200
+        """,
+        (product_id, after, buyer_id, seller_id, seller_id, buyer_id),
+    ).fetchall()
+    return jsonify(messages=[
+        {"id": r["id"], "sender_id": r["sender_id"],
+         "body": r["body"], "created_at": r["created_at"]}
+        for r in rows
+    ])

@@ -587,7 +587,7 @@ def test_chat_third_party_cannot_read(app):
 # --- 알림 ----------------------------------------------------------------
 def _unread_badge(client):
     import re as _re
-    m = _re.search(r'notif-badge">(\d+)<', client.get("/").get_data(as_text=True))
+    m = _re.search(r'data-notif-count[^>]*>(\d+)<', client.get("/").get_data(as_text=True))
     return int(m.group(1)) if m else 0
 
 
@@ -611,6 +611,44 @@ def test_message_creates_notification(app):
     seller.post("/notifications/read-all",
                 data={"csrf_token": csrf_from(seller, "/wallet/")}, follow_redirects=True)
     assert _unread_badge(seller) == 0
+
+
+def test_realtime_json_endpoints(app):
+    seller = app.test_client()
+    register(seller, "rtsell"); login(seller, "rtsell")   # id 2
+    _create_priced_product(seller, 100, "실시간상품")       # id 1
+    buyer = app.test_client()
+    register(buyer, "rtbuy"); login(buyer, "rtbuy")        # id 3
+    buyer.post("/chat/1/2", data={"csrf_token": csrf_from(buyer, "/wallet/"),
+                                  "body": "실시간메시지"}, follow_redirects=True)
+
+    # 알림 요약 JSON: 판매자 안읽음 1
+    summary = seller.get("/notifications/summary").get_json()
+    assert summary["unread"] == 1
+
+    # 채팅 메시지 JSON: after=0 이면 새 메시지, after=lastid 면 빈 배열
+    data = seller.get("/chat/1/3/messages?after=0").get_json()
+    assert len(data["messages"]) == 1
+    assert data["messages"][0]["body"] == "실시간메시지"
+    last = data["messages"][0]["id"]
+    assert seller.get(f"/chat/1/3/messages?after={last}").get_json()["messages"] == []
+
+
+def test_realtime_endpoints_access_control(app):
+    seller = app.test_client()
+    register(seller, "rasell"); login(seller, "rasell")    # id 2
+    _create_priced_product(seller, 100, "상품")             # id 1
+    buyer = app.test_client()
+    register(buyer, "rabuy"); login(buyer, "rabuy")        # id 3
+    buyer.post("/chat/1/2", data={"csrf_token": csrf_from(buyer, "/wallet/"),
+                                  "body": "hi"}, follow_redirects=True)
+
+    # 제3자는 대화 메시지 JSON 열람 불가(403)
+    third = app.test_client()
+    register(third, "rathird"); login(third, "rathird")
+    assert third.get("/chat/1/3/messages?after=0").status_code == 403
+    # 비로그인은 요약 JSON 접근 시 로그인으로 리다이렉트(302)
+    assert app.test_client().get("/notifications/summary").status_code == 302
 
 
 def test_notification_idor_blocked(app):

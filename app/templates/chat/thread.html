@@ -7,14 +7,15 @@
 </p>
 
 <div class="card">
-  <div class="chat-log">
+  <div class="chat-log" data-chat-log
+       data-product="{{ product['id'] }}" data-peer="{{ other['id'] }}" data-me="{{ me_id }}">
     {% for m in messages %}
-      <div class="msg {% if m['sender_id'] == me_id %}mine{% endif %}">
+      <div class="msg {% if m['sender_id'] == me_id %}mine{% endif %}" data-mid="{{ m['id'] }}">
         <div>{{ m['body'] }}</div>
         <div class="meta">{{ m['created_at'] }}</div>
       </div>
     {% else %}
-      <p class="muted">첫 메시지를 보내 보세요.</p>
+      <p class="muted chat-empty">첫 메시지를 보내 보세요.</p>
     {% endfor %}
   </div>
 

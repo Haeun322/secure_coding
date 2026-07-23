@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 from flask import (
     Blueprint,
     abort,
+    jsonify,
     redirect,
     request,
     render_template,
@@ -54,6 +55,29 @@ def index():
         (me["id"],),
     ).fetchall()
     return render_template("notifications/index.html", notifications=rows)
+
+
+@bp.route("/summary")
+@login_required
+def summary():
+    """헤더 종/드롭다운을 실시간 갱신하기 위한 JSON. app.js 가 주기적으로 가져간다."""
+    me = current_user()
+    db = get_db()
+    unread = db.execute(
+        "SELECT COUNT(*) AS c FROM notifications WHERE user_id = ? AND is_read = 0",
+        (me["id"],),
+    ).fetchone()["c"]
+    rows = db.execute(
+        """SELECT id, text, is_read, created_at FROM notifications
+           WHERE user_id = ? ORDER BY id DESC LIMIT 8""",
+        (me["id"],),
+    ).fetchall()
+    items = [
+        {"id": r["id"], "text": r["text"],
+         "is_read": r["is_read"], "created_at": r["created_at"]}
+        for r in rows
+    ]
+    return jsonify(unread=unread, items=items)
 
 
 @bp.route("/read-all", methods=("POST",))
