@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 from flask import (
     Blueprint,
     abort,
+    flash,
     jsonify,
     redirect,
     request,
@@ -92,6 +93,35 @@ def read_all():
     ref = request.referrer or ""
     if ref.startswith(request.host_url):
         return redirect(ref)
+    return redirect(url_for("notifications.index"))
+
+
+@bp.route("/<int:notif_id>/delete", methods=("POST",))
+@login_required
+def delete(notif_id):
+    """알림 1건 삭제(본인 것만)."""
+    me = current_user()
+    db = get_db()
+    n = db.execute("SELECT user_id FROM notifications WHERE id = ?", (notif_id,)).fetchone()
+    if n is None:
+        abort(404)
+    if n["user_id"] != me["id"]:      # 남의 알림 삭제 차단(IDOR)
+        abort(403)
+    db.execute("DELETE FROM notifications WHERE id = ?", (notif_id,))
+    db.commit()
+    flash("알림을 삭제했습니다.")
+    return redirect(url_for("notifications.index"))
+
+
+@bp.route("/delete-read", methods=("POST",))
+@login_required
+def delete_read():
+    """읽은 알림을 모두 삭제."""
+    me = current_user()
+    db = get_db()
+    db.execute("DELETE FROM notifications WHERE user_id = ? AND is_read = 1", (me["id"],))
+    db.commit()
+    flash("읽은 알림을 모두 삭제했습니다.")
     return redirect(url_for("notifications.index"))
 
 

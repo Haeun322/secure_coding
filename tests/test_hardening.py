@@ -665,6 +665,61 @@ def test_notification_idor_blocked(app):
     conn.close()
     # 알림 주인이 아닌 사람(구매자)이 열람/읽음 처리 시도 -> 403
     assert buyer.get(f"/notifications/{nid}/go").status_code == 403
+    # 남의 알림 삭제 시도 -> 403 (그대로 남아 있어야 함)
+    assert buyer.post(f"/notifications/{nid}/delete",
+                      data={"csrf_token": csrf_from(buyer, "/wallet/")}).status_code == 403
+
+
+def _notif_count(app, username):
+    conn = sqlite3.connect(app.config["DATABASE"])
+    n = conn.execute(
+        "SELECT COUNT(*) FROM notifications WHERE user_id=(SELECT id FROM users WHERE username=?)",
+        (username,)).fetchone()[0]
+    conn.close()
+    return n
+
+
+def test_notification_delete(app):
+    seller = app.test_client()
+    register(seller, "ndsel"); login(seller, "ndsel")      # id 2
+    _create_priced_product(seller, 100, "상품")             # id 1
+    buyer = app.test_client()
+    register(buyer, "ndbuy"); login(buyer, "ndbuy")        # id 3
+    # 메시지 2번 -> 알림 2개
+    buyer.post("/chat/1/2", data={"csrf_token": csrf_from(buyer, "/wallet/"), "body": "a"},
+               follow_redirects=True)
+    buyer.post("/chat/1/2", data={"csrf_token": csrf_from(buyer, "/wallet/"), "body": "b"},
+               follow_redirects=True)
+    assert _notif_count(app, "ndsel") == 2
+
+    # 개별 삭제
+    conn = sqlite3.connect(app.config["DATABASE"])
+    nid = conn.execute("SELECT id FROM notifications ORDER BY id DESC LIMIT 1").fetchone()[0]
+    conn.close()
+    seller.post(f"/notifications/{nid}/delete",
+                data={"csrf_token": csrf_from(seller, "/wallet/")}, follow_redirects=True)
+    assert _notif_count(app, "ndsel") == 1
+
+    # 읽은 알림 모두 삭제: 먼저 모두 읽음 처리 -> 그다음 삭제
+    seller.post("/notifications/read-all",
+                data={"csrf_token": csrf_from(seller, "/wallet/")}, follow_redirects=True)
+    seller.post("/notifications/delete-read",
+                data={"csrf_token": csrf_from(seller, "/wallet/")}, follow_redirects=True)
+    assert _notif_count(app, "ndsel") == 0
+
+
+def test_delete_read_keeps_unread(app):
+    seller = app.test_client()
+    register(seller, "drsel"); login(seller, "drsel")      # id 2
+    _create_priced_product(seller, 100, "상품")             # id 1
+    buyer = app.test_client()
+    register(buyer, "drbuy"); login(buyer, "drbuy")        # id 3
+    buyer.post("/chat/1/2", data={"csrf_token": csrf_from(buyer, "/wallet/"), "body": "x"},
+               follow_redirects=True)
+    # 안 읽은 상태에서 '읽은 알림 삭제' 하면 아무것도 안 지워진다
+    seller.post("/notifications/delete-read",
+                data={"csrf_token": csrf_from(seller, "/wallet/")}, follow_redirects=True)
+    assert _notif_count(app, "drsel") == 1
 
 
 # --- 금액 파서 엄격성(단위 테스트) ----------------------------------------

@@ -4,17 +4,29 @@
 <h1>알림</h1>
 <div class="card">
   {% if notifications %}
-    <form method="post" action="{{ url_for('notifications.read_all') }}" class="inline">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button type="submit">모두 읽음 처리</button>
-    </form>
+    <div class="actions">
+      <form method="post" action="{{ url_for('notifications.read_all') }}" class="inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit">모두 읽음 처리</button>
+      </form>
+      <form method="post" action="{{ url_for('notifications.delete_read') }}" class="inline"
+            data-confirm="읽은 알림을 모두 삭제할까요?">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="danger">읽은 알림 삭제</button>
+      </form>
+    </div>
     <div class="mt">
       {% for n in notifications %}
-        <a class="notif-row {% if not n['is_read'] %}unread{% endif %}"
-           href="{{ url_for('notifications.go', notif_id=n['id']) }}">
-          <div>{{ n['text'] }}</div>
-          <small class="muted">{{ n['created_at'] }}{% if not n['is_read'] %} · 새 알림{% endif %}</small>
-        </a>
+        <div class="notif-row {% if not n['is_read'] %}unread{% endif %}">
+          <a class="notif-row-link" href="{{ url_for('notifications.go', notif_id=n['id']) }}">
+            <div>{{ n['text'] }}</div>
+            <small class="muted">{{ n['created_at'] }}{% if not n['is_read'] %} · 새 알림{% endif %}</small>
+          </a>
+          <form method="post" action="{{ url_for('notifications.delete', notif_id=n['id']) }}" class="inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="linkbtn notif-del">삭제</button>
+          </form>
+        </div>
       {% endfor %}
     </div>
   {% else %}

@@ -118,15 +118,25 @@ th { background: #f0f2f5; }
   box-shadow: 0 8px 24px rgba(0,0,0,.12); z-index: 50; padding: 6px;
 }
 .notif-head { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; }
-.notif-item, .notif-row {
+.notif-item {
   display: block; padding: 10px; border-radius: 8px; color: #1f2328;
   border-bottom: 1px solid #f0f2f5;
 }
-.notif-item:hover, .notif-row:hover { background: #f6f7f9; text-decoration: none; }
-.notif-item.unread, .notif-row.unread { background: #eef4ff; }
+.notif-item:hover { background: #f6f7f9; text-decoration: none; }
+.notif-item.unread { background: #eef4ff; }
 .notif-text { display: block; }
 .notif-empty { display: block; padding: 14px 10px; }
 .notif-more { display: block; text-align: center; padding: 10px; font-weight: 600; }
+
+/* 전체 알림 페이지의 행: 내용 링크 + 삭제 버튼 */
+.notif-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 4px 10px; border-radius: 8px; border-bottom: 1px solid #f0f2f5;
+}
+.notif-row.unread { background: #eef4ff; }
+.notif-row-link { flex: 1; display: block; color: #1f2328; padding: 8px 0; }
+.notif-row-link:hover { text-decoration: none; }
+.notif-del { color: #b3261e; }
 
 /* 유틸리티 클래스: 인라인 style 속성을 없애 CSP(style-src 'self')를 지키기 위함 */
 .narrow { max-width: 480px; margin: 0 auto; }
