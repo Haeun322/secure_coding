@@ -257,6 +257,65 @@ def test_concurrent_transfers_no_double_spend(app):
     assert cnt == 1                            # 원장도 1건
 
 
+# --- 대화창 바로 결제 -----------------------------------------------------
+def test_chat_quick_pay_flow(app):
+    buyer = app.test_client()
+    register(buyer, "buyerx")
+    login(buyer, "buyerx")           # id 2 (admin=1)
+    seller = app.test_client()
+    register(seller, "sellerx")      # id 3
+
+    # 잔액 0 -> 결제 시 충전 화면으로 이동
+    r = buyer.post("/wallet/pay/3", data={
+        "csrf_token": csrf_from(buyer, "/chat/3"),
+        "amount": "1000", "memo": "", "password": "Passw0rd!",
+    }, follow_redirects=False)
+    assert r.status_code == 302
+    assert "/wallet" in r.headers["Location"]
+
+    # 충전 후 결제 성공
+    buyer.post("/wallet/topup", data={
+        "csrf_token": csrf_from(buyer, "/wallet/"), "amount": "5000"},
+        follow_redirects=True)
+    r = buyer.post("/wallet/pay/3", data={
+        "csrf_token": csrf_from(buyer, "/chat/3"),
+        "amount": "1500", "memo": "책값", "password": "Passw0rd!",
+    }, follow_redirects=True)
+    assert "송금했습니다" in r.get_data(as_text=True)
+
+    conn = sqlite3.connect(app.config["DATABASE"])
+    b = conn.execute("SELECT balance FROM users WHERE username='buyerx'").fetchone()[0]
+    s = conn.execute("SELECT balance FROM users WHERE username='sellerx'").fetchone()[0]
+    note = conn.execute(
+        "SELECT COUNT(*) FROM messages WHERE body LIKE '[송금]%'").fetchone()[0]
+    conn.close()
+    assert b == 3500 and s == 1500     # 잔액 정확히 이동
+    assert note == 1                   # 대화에 결제 내역 남음
+
+    # 비밀번호 틀리면 송금 취소
+    r = buyer.post("/wallet/pay/3", data={
+        "csrf_token": csrf_from(buyer, "/chat/3"),
+        "amount": "100", "memo": "", "password": "WrongPw123",
+    }, follow_redirects=True)
+    assert "올바르지 않아" in r.get_data(as_text=True)
+
+    conn = sqlite3.connect(app.config["DATABASE"])
+    b2 = conn.execute("SELECT balance FROM users WHERE username='buyerx'").fetchone()[0]
+    conn.close()
+    assert b2 == 3500                  # 잔액 변화 없음
+
+
+def test_chat_quick_pay_rejects_self(app):
+    c = app.test_client()
+    register(c, "selfpay")
+    login(c, "selfpay")              # id 2
+    r = c.post("/wallet/pay/2", data={
+        "csrf_token": csrf_from(c, "/wallet/"),
+        "amount": "100", "memo": "", "password": "Passw0rd!",
+    }, follow_redirects=True)
+    assert "자기 자신" in r.get_data(as_text=True)
+
+
 # --- 금액 파서 엄격성(단위 테스트) ----------------------------------------
 def test_amount_parser_strictness():
     from app.validators import validate_amount

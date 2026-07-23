@@ -10,7 +10,8 @@
     <a href="{{ url_for('payments.transfer') }}"><button type="button">송금하기</button></a>
     <form method="post" action="{{ url_for('payments.topup') }}" class="inline">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="number" name="amount" min="1" max="1000000" placeholder="충전 금액" required class="amt-in">
+      <input type="number" name="amount" min="1" max="1000000" placeholder="충전 금액" required class="amt-in"
+             value="{{ request.args.get('need', '') if request.args.get('need', '').isdigit() else '' }}">
       <button type="submit">충전(데모)</button>
     </form>
   </div>

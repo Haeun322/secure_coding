@@ -93,6 +93,8 @@ th { background: #f0f2f5; }
 .stat { background: #fff; border: 1px solid #e2e5e9; border-radius: 10px; padding: 16px; }
 .stat .num { font-size: 1.6rem; font-weight: 700; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.pay-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.pay-row input[type="text"], .pay-row input[type="password"] { flex: 1; min-width: 140px; }
 
 /* 유틸리티 클래스: 인라인 style 속성을 없애 CSP(style-src 'self')를 지키기 위함 */
 .narrow { max-width: 480px; margin: 0 auto; }

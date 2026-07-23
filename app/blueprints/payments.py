@@ -96,6 +96,68 @@ def transfer():
     return render_template("payments/transfer.html")
 
 
+@bp.route("/pay/<int:user_id>", methods=("POST",))
+@login_required
+def pay(user_id):
+    """대화창에서 상대에게 바로 송금.
+
+    - 수취인을 대화 상대(user_id)로 고정하므로 아이디를 따로 입력하지 않는다.
+    - 잔액이 부족하면 지갑 충전 화면으로 보낸다(부족분을 미리 채워 준다).
+    - 나머지 보안(비밀번호 재확인, 원자적 이체)은 일반 송금과 동일하다.
+    """
+    me = current_user()
+    back = url_for("chat.thread", user_id=user_id)
+
+    if rate_limit(f"transfer:{me['id']}", max_calls=10, per_seconds=60):
+        flash("송금 시도가 너무 잦습니다. 잠시 후 다시 시도하세요.")
+        return redirect(back)
+
+    password = request.form.get("password") or ""
+    try:
+        amount = validate_amount(request.form.get("amount"))
+        memo = validate_text(request.form.get("memo"), "transfer_memo", allow_empty=True)
+    except ValueError as exc:
+        flash(str(exc))
+        return redirect(back)
+
+    db = get_db()
+    recipient = db.execute(
+        "SELECT id, status FROM users WHERE id = ?", (user_id,)
+    ).fetchone()
+    if recipient is None or recipient["status"] != "active":
+        flash("송금할 수 없는 상대입니다.")
+        return redirect(url_for("chat.inbox"))
+    if recipient["id"] == me["id"]:
+        flash("자기 자신에게는 송금할 수 없습니다.")
+        return redirect(back)
+
+    # 잔액이 부족하면 충전 화면으로 이동 (부족분을 미리 채워 준다)
+    if me["balance"] < amount:
+        shortfall = amount - me["balance"]
+        flash(f"잔액이 부족합니다. {shortfall:,}원을 충전한 뒤 다시 결제해 주세요.")
+        return redirect(url_for("payments.wallet", need=min(shortfall, 1_000_000)))
+
+    # 재인증: 비밀번호 확인
+    if not check_password_hash(me["password_hash"], password):
+        flash("비밀번호가 올바르지 않아 송금을 취소했습니다.")
+        return redirect(back)
+
+    ok, message = _do_transfer(me["id"], recipient["id"], amount, memo)
+    flash(message)
+    if ok:
+        # 결제 사실을 대화에도 남겨 양쪽이 확인할 수 있게 한다.
+        note = f"[송금] {amount:,}원을 보냈습니다." + (f" ({memo})" if memo else "")
+        db.execute(
+            "INSERT INTO messages (sender_id, receiver_id, body) VALUES (?, ?, ?)",
+            (me["id"], recipient["id"], note),
+        )
+        db.commit()
+    elif "부족" in message:
+        # 읽기와 트랜잭션 사이에 잔액이 줄어든 경우도 충전 화면으로
+        return redirect(url_for("payments.wallet"))
+    return redirect(back)
+
+
 def _do_transfer(sender_id, receiver_id, amount, memo):
     """하나의 IMMEDIATE 트랜잭션에서 잔액 검증 + 이체 + 기록.
 
