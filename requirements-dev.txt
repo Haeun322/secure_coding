@@ -1,3 +1,5 @@
 # 개발/테스트용 추가 의존성
 -r requirements.txt
 pytest==9.1.1
+# 보고서(docs/REPORT.md)를 인쇄용 HTML 로 변환할 때만 사용
+markdown==3.10.2

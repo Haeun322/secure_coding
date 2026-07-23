@@ -1,0 +1,596 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>중고거래 플랫폼 개발 보고서</title><style>
+@page { size: A4; margin: 18mm 16mm; }
+* { box-sizing: border-box; }
+body {
+  font-family: "Malgun Gothic", "맑은 고딕", system-ui, sans-serif;
+  color: #1f2328; line-height: 1.65; font-size: 10.5pt; margin: 0;
+  max-width: 800px; padding: 24px; margin-left: auto; margin-right: auto;
+}
+h1, h2, h3 { line-height: 1.3; }
+h1 { font-size: 20pt; border-bottom: 3px solid #4c8f3f; padding-bottom: 8px; }
+h2 { font-size: 15pt; margin-top: 26px; border-bottom: 1px solid #d7dbe0; padding-bottom: 5px; }
+h3 { font-size: 12pt; margin-top: 18px; }
+p, li { font-size: 10.5pt; }
+code {
+  font-family: Consolas, "D2Coding", monospace; font-size: 9.5pt;
+  background: #f3f4f6; padding: 1px 4px; border-radius: 4px;
+}
+pre {
+  background: #f6f8fa; border: 1px solid #e2e5e9; border-radius: 6px;
+  padding: 10px 12px; overflow-x: auto;
+}
+pre code { background: none; padding: 0; }
+table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 9.5pt; }
+th, td { border: 1px solid #cfd4da; padding: 6px 9px; text-align: left; vertical-align: top; }
+th { background: #eef2f5; }
+tr, table, pre, h1, h2, h3 { page-break-inside: avoid; }
+h1, h2, h3 { page-break-after: avoid; }
+hr { border: none; border-top: 1px solid #d7dbe0; margin: 20px 0; }
+blockquote { color: #57606a; border-left: 3px solid #cfd4da; margin: 8px 0; padding: 2px 12px; }
+a { color: #1a5fd0; text-decoration: none; }
+</style></head><body><h1>중고거래 플랫폼 개발 보고서</h1>
+<ul>
+<li>과목: WhiteHat School — Secure Coding</li>
+<li>프로젝트: Tiny Second-hand Shopping Platform</li>
+<li>작성일: 2026-07-24</li>
+<li>GitHub: https://github.com/&lt;본인계정&gt;/secure-marketplace  <em>(제출 전 실제 저장소 주소로 교체)</em></li>
+</ul>
+<hr />
+<p>이 문서는 중고거래 플랫폼을 처음부터 만들면서 무엇을 어떤 순서로 고민했는지,
+그리고 보안 관점에서 어디가 위험할 수 있었고 그걸 어떻게 막았는지를 정리한 글이다.
+과제에서 요구한 대로 요구사항 분석 → 시스템 설계 → 구현 → 체크리스트/테스트 →
+유지보수 순서로 적었고, 개발하면서 실제로 걸렸던 부분과 나중에 리뷰로 잡아낸
+버그까지 최대한 솔직하게 남겼다.</p>
+<hr />
+<h2>1. 무엇을 만들었나</h2>
+<p>한마디로 당근마켓/번개장터의 축소판이다. 사용자가 가입해서 상품을 올리고, 남의 상품을
+보고, 상품마다 판매자와 대화하고, 앱 안의 지갑으로 결제한다. 결제는 바로 판매자에게
+넘어가지 않고 "구매 확정"을 눌러야 정산되는 안전거래(에스크로) 방식이다. 악성 유저나
+상품은 신고할 수 있고, 관리자가 전체를 통제한다.</p>
+<p>과제의 필수 요구사항 7개를 먼저 모두 채우고, "논리적으로 타당하면 기능 추가 가능"이라는
+안내에 따라 실제 서비스에 가깝게 몇 가지를 더 붙였다.</p>
+<p><strong>필수 요구사항 대응</strong></p>
+<table>
+<thead>
+<tr>
+<th>요구사항</th>
+<th>구현한 것</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>가입</td>
+<td>아이디/비밀번호 회원가입, 로그인/로그아웃, 프로필·비밀번호 변경</td>
+</tr>
+<tr>
+<td>상품 등록·조회</td>
+<td>상품 CRUD, 이미지 업로드, 목록/상세, 카테고리·지역</td>
+</tr>
+<tr>
+<td>사용자 간 소통</td>
+<td>상품별 1:1 메시지(실시간 갱신)</td>
+</tr>
+<tr>
+<td>악성 유저·상품 차단</td>
+<td>신고 → 누적 시 자동 숨김 + 관리자 수동 차단</td>
+</tr>
+<tr>
+<td>송금</td>
+<td>지갑, 사용자 간 이체, 상품 결제(에스크로)</td>
+</tr>
+<tr>
+<td>검색</td>
+<td>제목/설명 키워드 + 카테고리·지역 필터 + 정렬</td>
+</tr>
+<tr>
+<td>관리자</td>
+<td>사용자·상품·신고·송금 전체 조회 및 차단/해제</td>
+</tr>
+</tbody>
+</table>
+<p><strong>추가로 붙인 기능</strong></p>
+<ul>
+<li>안전거래(에스크로): 결제 → 대금 보류 → 구매 확정 시 판매자 정산, 취소 시 환불</li>
+<li>찜(관심상품)과 관심목록</li>
+<li>거래 후기 + 판매자 평판(별점 평균/후기 수)</li>
+<li>구매내역 페이지(보류 결제를 바로 확정/취소)</li>
+<li>알림(헤더 종 + 드롭다운 + 전체 페이지), 메시지·거래 이벤트 실시간 반영</li>
+</ul>
+<p>규모는 파이썬 약 2,500줄, 라우트 43개, 테이블 10개, 통합·단위 테스트 55개다.
+기술 스택은 Python 3.14 + Flask 3.1 + SQLite로 잡았고, 이유는 아래 설계 부분에 적었다.</p>
+<hr />
+<h2>2. 요구사항 분석</h2>
+<h3>2.1 기능 요구사항</h3>
+<p>필수 7개를 그대로 기능으로 옮겼다. 다만 "송금"과 "차단"은 대충 만들면 바로 사고가 나는
+기능이라 처음부터 따로 신경 썼다.</p>
+<ul>
+<li>송금: 돈이 오가는 곳이라 잔액이 음수가 되거나, 동시에 두 번 눌렀을 때 이중으로
+  빠져나가는 상황을 반드시 막아야 한다. 그리고 중고거래 특성상 "선입금 사기"가 흔해서,
+  대금을 바로 넘기지 않고 잡아 두는 에스크로가 있어야 실제로 쓸 만하다고 판단했다.</li>
+<li>차단: 차단당한 사용자가 이미 발급받은 세션으로 계속 돌아다니면 차단이 무의미하다.
+  차단이 "다음 요청부터 즉시" 먹혀야 한다.</li>
+</ul>
+<h3>2.2 보안 요구사항 (비기능)</h3>
+<p>이 과제는 사실상 "기능을 만들되 취약점을 만들지 마라"가 핵심이다. 그래서 기능 명세와
+별개로, 웹에서 흔히 터지는 항목을 미리 목록으로 뽑아 두고 개발 내내 이 목록을 기준으로
+코드를 봤다. OWASP Top 10을 참고해 이 프로젝트에 해당하는 것만 추렸다.</p>
+<ul>
+<li>인증/세션: 비밀번호 평문 저장 금지, 세션 고정·탈취 대비, 차단 즉시 반영</li>
+<li>접근 통제: 남의 리소스(상품, 대화, 지갑, 주문, 알림)에 손대지 못하게</li>
+<li>인젝션: SQL Injection, XSS</li>
+<li>CSRF: 상태를 바꾸는 요청은 전부 토큰 검증</li>
+<li>돈: 이중지불/음수 잔액/에스크로 상태 꼬임 방지</li>
+<li>파일 업로드: 위장 파일/실행 파일 차단</li>
+<li>무차별 대입: 로그인 시도 제한(단, 계정 잠금 DoS는 피할 것)</li>
+<li>민감정보 노출: 에러 스택, 비밀번호 해시, 잔액 등</li>
+</ul>
+<hr />
+<h2>3. 시스템 설계</h2>
+<h3>3.1 언어·프레임워크 선택</h3>
+<p>Flask를 골랐다. 이유가 몇 개 있다.</p>
+<p>첫째, 이 과제의 목적이 "보안 처리를 직접 이해하고 적용하는 것"이라고 봤다. Django처럼
+CSRF·인증이 다 자동으로 되는 프레임워크를 쓰면 편하긴 한데, 정작 "내가 뭘 막고 있는지"가
+잘 안 보인다. Flask는 최소한만 주기 때문에 CSRF나 세션, 접근 제어를 내가 손으로 붙이게
+되고, 그 과정이 그대로 보고서 재료가 된다.</p>
+<p>둘째, 의존성을 적게 가져가고 싶었다. 외부 패키지가 많을수록 공급망 취약점 표면이 넓어진다.
+그래서 실제 런타임 의존성은 Flask와 Werkzeug 딱 두 개다. CSRF 토큰, 레이트리밋, 입력
+검증은 표준 라이브러리(<code>secrets</code>, <code>hmac</code>, <code>re</code>)로 직접 짰다.</p>
+<p>DB는 SQLite로 했다. 별도 서버 설치 없이 파일 하나로 돌아가서 채점/재현이 쉽고, <code>sqlite3</code>
+모듈이 파라미터 바인딩을 기본으로 지원해 SQL Injection을 막기에도 충분하다. 규모가 커지면
+PostgreSQL로 옮기면 되는데, 쿼리를 전부 파라미터 바인딩으로 짜뒀기 때문에 전환 비용이 적다.</p>
+<h3>3.2 구조</h3>
+<p>애플리케이션 팩토리 + 블루프린트 구조로 나눴다. 기능별로 파일이 갈려 있어서 관리자 코드
+보다가 결제 코드로 넘어가는 게 쉽다.</p>
+<pre><code>app/
+  __init__.py      앱 조립(팩토리), 에러 핸들러, 관리자 부트스트랩, 알림 컨텍스트
+  config.py        환경변수 로딩, 세션 쿠키 옵션, 프록시 설정
+  db.py            SQLite 연결(요청용/쓰기전용 분리), 스키마 적용, 마이그레이션
+  schema.sql       테이블 정의
+  security.py      CSRF, 인증 데코레이터, 레이트리밋, 보안 헤더
+  validators.py    입력값 검증 함수 모음
+  constants.py     카테고리/정렬 화이트리스트
+  blueprints/
+    main / auth / products / chat / payments / reports / admin / notifications
+  templates/       Jinja2 (자동 이스케이프)
+  static/          style.css, app.js
+tests/
+  test_app.py      기본 기능·보안 테스트
+  test_hardening.py 정밀 검증·회귀 테스트
+</code></pre>
+<p>보안 관련 코드를 <code>security.py</code>, <code>validators.py</code> 두 곳에 몰아둔 건 의도적이다. "검증은
+여기서만 한다"는 규칙을 만들어 두면, 나중에 어떤 기능을 추가할 때도 같은 관문을 통과시키게
+된다.</p>
+<h3>3.3 데이터 모델</h3>
+<p>테이블은 10개다. 핵심 원칙 두 가지가 있다.</p>
+<ul>
+<li><strong>금액은 전부 정수(원)로 저장한다.</strong> 처음엔 실수로 할까 하다가, 0.1 + 0.2 =
+  0.30000000004 같은 부동소수점 오차가 돈 계산에 끼면 안 되겠다 싶어 정수로 고정했다.
+  잔액 컬럼에는 <code>CHECK (balance &gt;= 0)</code> 제약을 걸어서, 애플리케이션 로직이 뚫려도 DB
+  레벨에서 음수 잔액을 거부하도록 했다(다층 방어).</li>
+<li><strong>차단은 행을 지우는 게 아니라 상태를 바꾼다.</strong> 지워버리면 신고 이력이나 거래 내역이
+  같이 날아가 나중에 확인이 안 된다.</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>테이블</th>
+<th>역할</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>users</td>
+<td>계정, 잔액, 권한(user/admin), 상태(active/blocked)</td>
+</tr>
+<tr>
+<td>login_attempts</td>
+<td>로그인 시도 기록(무차별 대입 방어)</td>
+</tr>
+<tr>
+<td>products</td>
+<td>상품(제목/설명/가격/카테고리/지역/이미지/상태)</td>
+</tr>
+<tr>
+<td>messages</td>
+<td>상품별 1:1 메시지(product_id로 대화 분리)</td>
+</tr>
+<tr>
+<td>transfers</td>
+<td>송금/정산 원장</td>
+</tr>
+<tr>
+<td>orders</td>
+<td>주문(에스크로): held/confirmed/cancelled</td>
+</tr>
+<tr>
+<td>reviews</td>
+<td>거래 후기(별점, 코멘트)</td>
+</tr>
+<tr>
+<td>favorites</td>
+<td>찜</td>
+</tr>
+<tr>
+<td>reports</td>
+<td>신고(user/product 대상)</td>
+</tr>
+<tr>
+<td>notifications</td>
+<td>알림</td>
+</tr>
+</tbody>
+</table>
+<h3>3.4 결제/에스크로 상태 설계</h3>
+<p>가장 공들인 부분이라 따로 적는다. 상품 결제는 세 단계다.</p>
+<ol>
+<li><strong>결제(보류)</strong>: 구매자 잔액에서 상품 가격만큼 빼서 플랫폼이 잡아 둔다. 판매자에겐 아직
+   안 준다. 상품은 "거래중" 상태가 되어 다른 사람이 못 산다. <code>orders</code>에 <code>held</code> 주문이 생긴다.</li>
+<li><strong>구매 확정</strong>: 구매자가 물건을 받고 확정을 누르면, 보류 대금이 판매자에게 정산되고
+   주문이 <code>confirmed</code>가 된다. 이때부터 후기를 남길 수 있다.</li>
+<li><strong>거래 취소</strong>: 확정 전이라면 구매자나 판매자가 취소할 수 있고, 대금은 구매자에게
+   전액 환불되며 상품은 다시 판매중이 된다. 주문은 <code>cancelled</code>.</li>
+</ol>
+<p>이 세 단계를 각각 하나의 <code>BEGIN IMMEDIATE</code> 트랜잭션으로 처리한다. 그래야 동시에 두 명이
+같은 상품을 사도 한 명만 성공하고, 확정과 취소가 겹쳐도 한쪽만 처리된다.</p>
+<hr />
+<h2>4. 구현</h2>
+<p>기능별로, 특히 보안적으로 신경 쓴 부분 위주로 적는다.</p>
+<h3>4.1 회원가입 / 로그인</h3>
+<p>비밀번호는 Werkzeug의 <code>generate_password_hash</code>로 해싱해 저장하고, 검증은
+<code>check_password_hash</code>로 한다. 평문은 어디에도 남기지 않는다. 로그인이 성공하면
+<code>session.clear()</code>로 세션을 비우고 새로 시작한다(세션 고정 방지). 로그인 실패는 아이디가
+틀렸든 비밀번호가 틀렸든 하나의 메시지로 통일해 계정 존재 여부가 새어나가지 않게 했다.</p>
+<h3>4.2 상품 + 이미지 업로드 + 검색</h3>
+<p>이미지 업로드는 검증을 3단으로 걸었다. (1) 확장자 화이트리스트(png/jpg/gif/webp), (2)
+파일 앞부분 매직바이트 확인 — 브라우저가 보낸 Content-Type은 위조 가능해서 믿지 않는다,
+(3) 저장 파일명은 <code>secrets.token_hex(16)</code>으로 새로 만들어 사용자 파일명을 경로에 절대
+반영하지 않는다(경로 순회 차단). 파일 서빙은 <code>send_from_directory</code>로 한다.</p>
+<p>검색은 제목/설명 키워드(LIKE), 카테고리(7종), 지역(동네), 정렬(최신/가격↓↑/인기순)을
+지원하고 페이지네이션이 붙어 있다. 여기서 정렬은 사용자 입력을 SQL에 그대로 넣지 않고
+미리 정해둔 화이트리스트 문자열로만 매핑한다(ORDER BY 인젝션 방지).</p>
+<h3>4.3 상품별 1:1 메시지</h3>
+<p>원래 대화를 "사용자쌍" 기준으로 저장했더니, 같은 판매자의 상품 A·B 대화가 한 스레드에
+섞이는 문제가 있었다. 그래서 대화를 <strong>(상품, 구매자)</strong> 단위로 나눴다. 대화방 접근은
+<code>_resolve_conversation</code>이라는 함수 하나로 검증한다. 나는 그 상품의 판매자이거나, 상대가
+판매자이거나 둘 중 하나여야 하고, 그 외에는 403이다. 제3자가 URL의 id만 바꿔 남의 대화를
+훔쳐보는 시도를 막는다.</p>
+<h3>4.4 지갑 / 송금 / 에스크로 결제</h3>
+<ul>
+<li><strong>일반 송금</strong>(<code>/wallet/transfer</code>): 아이디로 상대를 지정해 금액을 보낸다. 비밀번호
+  재확인을 요구하고, 잔액 확인·차감·증가·기록을 하나의 IMMEDIATE 트랜잭션으로 처리한다.</li>
+<li><strong>상품 결제</strong>(<code>/wallet/buy/&lt;id&gt;</code>): 금액을 입력받지 않고 상품 가격만큼만 빠진다. 잔액이
+  부족하면 충전 화면으로 보낸다(부족분을 미리 채워 준다). 결제하면 대금이 보류되고,
+  구매내역이나 상품 상세에서 확정/취소할 수 있다.</li>
+<li><strong>데모 충전</strong>(<code>/wallet/topup</code>): 실제 PG 연동 대신 테스트용으로 잔액을 올린다. 무한정
+  찍지 못하도록 1회 한도와 총 잔액 상한을 뒀다. 실서비스라면 결제 승인 검증으로 대체해야 한다.</li>
+</ul>
+<h3>4.5 찜 / 후기 / 평판</h3>
+<p>찜은 상품 상세에서 토글하고 관심목록에서 모아 본다. 후기는 구매를 확정한 거래에 대해서만,
+구매자가 판매자에게 별점(1~5)과 한 줄 코멘트로 남길 수 있다(주문당 1회, UNIQUE 제약).
+프로필과 상품 상세에는 판매자의 평판(평균 별점 + 후기 수)이 표시된다.</p>
+<h3>4.6 신고 / 차단 / 관리자</h3>
+<p>사용자는 다른 유저나 상품을 신고할 수 있고, 같은 대상 중복 신고는 UNIQUE 제약으로 막는다.
+서로 다른 사람에게서 신고가 3건 이상 쌓이면 관리자가 보기 전이라도 자동으로 숨김 처리해
+피해가 번지는 걸 늦춘다(관리자 계정과 관리자 상품은 자동 차단에서 제외). 관리자 전용
+라우트는 전부 <code>admin_required</code>를 걸어 일반 사용자가 URL을 직접 쳐도 403이다.</p>
+<h3>4.7 알림 + 실시간 반영</h3>
+<p>메시지 수신, 결제(보류), 구매 확정, 거래 취소, 후기 등록 시 상대에게 알림이 생긴다. 헤더의
+종 아이콘에 안 읽은 수가 배지로 뜨고, 누르면 최근 알림 드롭다운이 열린다. 전체 알림
+페이지에서 개별/일괄 삭제도 된다.</p>
+<p>처음엔 새로고침해야 알림이 갱신됐는데, 실시간으로 바꿔달라는 요구가 있어서 가벼운
+폴링(fetch)을 붙였다. WebSocket은 이 개발 서버/CSP 환경에서 무거워서, 알림은 12초·채팅은
+4초마다 같은 출처 JSON 엔드포인트를 조용히 가져와 화면을 갱신한다. JS가 화면에 값을 넣을
+땐 전부 <code>textContent</code>만 쓴다(XSS 안전). 인라인 스크립트 없이 외부 <code>app.js</code>로만 처리해
+CSP(<code>script-src 'self'</code>)를 그대로 유지했다.</p>
+<hr />
+<h2>5. 개발 중 확인한 보안 약점과 대응</h2>
+<p>여기가 이 보고서의 핵심이다. 개발은 크게 세 번의 결에 걸쳐 점검했다. (1) 처음 짤 때 설계로
+막은 것, (2) 기능이 다 된 뒤 코드를 처음 보는 눈으로 다시 훑은 2차 검증, (3) 완성 직전
+영역별로 나눠 파고든 3차 최종 검수. 각 라운드에서 실제로 잡은 것들을 적는다.</p>
+<h3>5.1 1차 — 설계로 막은 기본 항목</h3>
+<table>
+<thead>
+<tr>
+<th>약점</th>
+<th>위험</th>
+<th>대응</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SQL Injection</td>
+<td><code>' OR '1'='1</code> 등으로 인증 우회/데이터 유출</td>
+<td>모든 쿼리 파라미터 바인딩(<code>?</code>), 문자열 포매팅 SQL 0건. 검색 LIKE는 와일드카드까지 이스케이프</td>
+</tr>
+<tr>
+<td>XSS</td>
+<td>상품 설명·메시지의 <code>&lt;script&gt;</code>가 남의 브라우저에서 실행</td>
+<td>Jinja2 자동 이스케이프(어디서도 <code>\|safe</code> 안 씀), CSP로 이중 차단</td>
+</tr>
+<tr>
+<td>CSRF</td>
+<td>로그인 사용자를 유인해 송금·삭제를 대신 실행</td>
+<td>세션 CSRF 토큰을 <code>before_request</code>에서 전수 검증, <code>hmac.compare_digest</code>로 상수시간 비교, 쿠키 SameSite=Lax</td>
+</tr>
+<tr>
+<td>접근 통제/IDOR</td>
+<td>URL id만 바꿔 남의 상품 수정·관리자 침입</td>
+<td>소유권 확인 + <code>admin_required</code>, 세션 role을 안 믿고 매 요청 DB 재확인</td>
+</tr>
+<tr>
+<td>비밀번호 저장</td>
+<td>평문 유출</td>
+<td>Werkzeug 해시, 평문 미보관</td>
+</tr>
+<tr>
+<td>파일 업로드</td>
+<td>위장 파일/경로 순회</td>
+<td>확장자+매직바이트+무작위 파일명, 용량 제한</td>
+</tr>
+<tr>
+<td>송금 이중지불</td>
+<td>동시에 두 번 눌러 음수 잔액</td>
+<td>IMMEDIATE 트랜잭션 + <code>CHECK(balance&gt;=0)</code></td>
+</tr>
+<tr>
+<td>민감정보 노출</td>
+<td>스택트레이스/해시/잔액</td>
+<td>운영 debug off, 커스텀 에러 페이지, 공개 쿼리에서 민감 컬럼 제외, 비밀키는 .env</td>
+</tr>
+<tr>
+<td>보안 헤더 부재</td>
+<td>클릭재킹/MIME 스니핑</td>
+<td>CSP, X-Frame-Options, nosniff, Referrer-Policy 등</td>
+</tr>
+</tbody>
+</table>
+<h3>5.2 2차 — 정밀 검증에서 잡은 것</h3>
+<p>기능을 처음 보는 눈으로 다시 훑으며 인증/세션, 송금 동시성, 접근 통제, 인젝션/CSP를 각각
+따로 파고들었다. 여기서 1차 때 놓친 실제 결함이 여러 개 나왔고, 각 지적은 실제로 재현한
+뒤에만 고쳤다.</p>
+<ul>
+<li><strong>차단이 즉시 안 먹힘</strong>: 세션에 사용자 정보를 통째로 담아 재사용하면, 관리자가 차단해도
+  기존 세션으로 계속 돌아다닌다. → 세션엔 <code>user_id</code>만 저장하고 매 요청마다 DB에서 상태를
+  다시 읽어, blocked면 그 자리에서 세션을 비우도록 바꿨다.</li>
+<li><strong>누구나 남의 계정을 잠그는 로그인 DoS</strong>: 로그인 실패 제한을 "계정명"만으로 걸었더니,
+  공격자가 남의 계정명으로 일부러 5번 실패시켜 그 사람을 15분간 못 들어오게 만들 수 있었다.
+  → 잠금 축을 <code>IP</code> 와 <code>계정명+IP</code> 조합으로 바꿨다. 피해자는 자기 IP에서 정상 로그인된다.</li>
+<li><strong>차단 계정 열거</strong>: 비밀번호가 틀려도 "차단된 계정"이라고 알려줘, 비밀번호 없이도 어떤
+  아이디가 존재/차단됐는지 알 수 있었다. → 차단 안내는 비밀번호가 맞았을 때만 보여준다.</li>
+<li><strong>오픈 리다이렉트</strong>: <code>next=/\evil.com</code> 같은 역슬래시 우회를 허용했다. → 역슬래시·<code>//</code>
+  시작·제어문자를 모두 걸러 내부 경로만 허용.</li>
+<li><strong>CSP와 인라인 스타일 충돌</strong>: CSP를 엄격히 걸어놓고 정작 템플릿엔 인라인 <code>style</code>과
+  <code>onsubmit</code>이 있어, 실제 브라우저에선 스타일이 깨지고 삭제 확인창이 안 떴다. → 인라인
+  14곳을 CSS 클래스로 옮기고 핸들러는 외부 JS의 <code>data-*</code> 방식으로 바꿔 <code>'unsafe-inline'</code>
+  없이도 정상 동작하게 했다.</li>
+<li><strong>금액 파싱 오류</strong>: <code>1,2,3</code>이 123이 되고 전각 숫자 <code>１２３</code>도 먹혔다. → ASCII 숫자만
+  허용하고 콤마는 올바른 천단위일 때만 인정하도록 파서를 다시 짰다.</li>
+<li>그 밖에: 데모 충전 총액 상한, 프록시 뒤 실제 IP 복원(ProxyFix), 비밀번호 흔한값/아이디
+  포함 금지, 로그 테이블 정리 등.</li>
+</ul>
+<h3>5.3 3차 — 최종 검수에서 잡은 에스크로 자금 결함</h3>
+<p>에스크로·알림 같은 기능을 다 붙인 뒤, 영역별로(돈, 접근통제, 인젝션, 로직) 나눠 다시
+전수 검수했다. 여기서 실제로 돈이 사라지거나 이중결제로 이어질 수 있는 결함 두 개를 찾았다.
+둘 다 심각했다.</p>
+<ul>
+<li><strong>[치명] 보류 상품 삭제로 대금 증발</strong>: <code>orders</code>가 상품에 <code>ON DELETE CASCADE</code>로 걸려
+  있어서, 결제 보류 중인 상품을 삭제하면 주문이 함께 지워졌다. 구매자 대금은 이미 빠져
+  나간 상태라 환불도 정산도 없이 그냥 사라졌다. → 보류 주문이 있는 상품은 삭제를 막았다.</li>
+<li><strong>[높음] 보류 상품 수정으로 이중결제</strong>: 결제 보류 중인 상품(상태 sold)을 판매자가
+  수정으로 "판매중"으로 되돌릴 수 있었다. 그러면 다른 사람이 또 결제해 한 물건에 두 명의
+  대금이 잡히고 판매자가 두 번 정산받을 수 있었다. → 보류 중엔 수정을 막았다.</li>
+<li><strong>[중간] 후기 삭제(평판 조작)</strong>: 거래 완료 상품을 삭제하면 후기까지 CASCADE로 지워져,
+  판매자가 나쁜 후기를 지우려 상품을 지울 수 있었다. → 거래 이력이 있으면 삭제를 막았다.</li>
+<li><strong>[중간] 차단된 판매자에게 정산</strong>: 구매 확정 시 판매자 상태를 안 봐서, 사기로 차단된
+  판매자에게도 정산이 됐다. → 확정 시 판매자가 이용 제한이면 정산을 거부하고 구매자에게
+  취소(환불)를 안내하도록 바꿨다.</li>
+<li>그 밖에: 상품 삭제 시 고아 메시지/죽은 알림 링크 정리, 대화 목록의 보류 상품 "거래완료"
+  오표시 수정, <code>buy</code>와 <code>transfer</code>가 레이트리밋 버킷을 공유하던 문제 분리.</li>
+</ul>
+<p>이 3차 검수에서 SQL Injection, XSS, CSP, 파일 업로드, 접근통제(IDOR), mass assignment,
+동시성 이중지불은 별도로 재점검한 결과 문제가 없음을 확인했다. 남은 낮은 등급 항목(알림
+읽음 처리가 GET인 점, 업로드 이미지 재인코딩 미적용)은 영향이 미미해 의도적으로 수용했고
+그 판단 근거는 아래 유지보수 절에 적었다.</p>
+<hr />
+<h2>6. 체크리스트와 테스팅</h2>
+<h3>6.1 보안 점검 체크리스트</h3>
+<p>아래 표를 하나씩 짚으며 코드를 다시 봤다.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>점검 항목</th>
+<th>상태</th>
+<th>근거</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>비밀번호 해시 저장</td>
+<td>O</td>
+<td>Werkzeug 해시, 평문 없음</td>
+</tr>
+<tr>
+<td>2</td>
+<td>세션 고정 방지</td>
+<td>O</td>
+<td>로그인 시 세션 재발급</td>
+</tr>
+<tr>
+<td>3</td>
+<td>차단 즉시 반영</td>
+<td>O</td>
+<td>매 요청 DB 재확인</td>
+</tr>
+<tr>
+<td>4</td>
+<td>모든 쿼리 파라미터 바인딩</td>
+<td>O</td>
+<td>문자열 포매팅 SQL 0건, 정렬 화이트리스트</td>
+</tr>
+<tr>
+<td>5</td>
+<td>출력 이스케이프(XSS)</td>
+<td>O</td>
+<td>Jinja 자동 이스케이프, JS는 textContent</td>
+</tr>
+<tr>
+<td>6</td>
+<td>CSRF 토큰 검증</td>
+<td>O</td>
+<td>상태 변경 요청 전수 검증</td>
+</tr>
+<tr>
+<td>7</td>
+<td>접근 통제(IDOR/권한)</td>
+<td>O</td>
+<td>소유권/당사자 확인 + 데코레이터</td>
+</tr>
+<tr>
+<td>8</td>
+<td>로그인 레이트리밋(DoS 없이)</td>
+<td>O</td>
+<td>IP·(계정+IP) 축</td>
+</tr>
+<tr>
+<td>9</td>
+<td>파일 업로드 검증</td>
+<td>O</td>
+<td>확장자+매직바이트+무작위명</td>
+</tr>
+<tr>
+<td>10</td>
+<td>송금 원자성/음수 방지</td>
+<td>O</td>
+<td>IMMEDIATE + CHECK + WAL</td>
+</tr>
+<tr>
+<td>11</td>
+<td>송금·구매 동시성(이중지불)</td>
+<td>O</td>
+<td>스레드 10개 동시 테스트</td>
+</tr>
+<tr>
+<td>12</td>
+<td>에스크로 상태 무결성</td>
+<td>O</td>
+<td>보류 중 수정/삭제 차단, 차단 판매자 정산 거부</td>
+</tr>
+<tr>
+<td>13</td>
+<td>계정 존재/차단 열거 방지</td>
+<td>O</td>
+<td>실패 응답 통일, 타이밍 방어</td>
+</tr>
+<tr>
+<td>14</td>
+<td>오픈 리다이렉트 방지</td>
+<td>O</td>
+<td>내부 경로만 허용</td>
+</tr>
+<tr>
+<td>15</td>
+<td>보안 헤더</td>
+<td>O</td>
+<td>CSP+HSTS 외 4종</td>
+</tr>
+<tr>
+<td>16</td>
+<td>인라인 제거(CSP 실효)</td>
+<td>O</td>
+<td>인라인 style/handler 0건</td>
+</tr>
+<tr>
+<td>17</td>
+<td>입력 검증(금액 엄격)</td>
+<td>O</td>
+<td>ASCII 숫자만, 길이 제한</td>
+</tr>
+<tr>
+<td>18</td>
+<td>비밀키/설정 분리</td>
+<td>O</td>
+<td>.env + .gitignore</td>
+</tr>
+<tr>
+<td>19</td>
+<td>디버그 모드 차단</td>
+<td>O</td>
+<td>운영 debug=False</td>
+</tr>
+<tr>
+<td>20</td>
+<td>요청 크기 제한</td>
+<td>O</td>
+<td>MAX_CONTENT_LENGTH 5MB</td>
+</tr>
+</tbody>
+</table>
+<h3>6.2 테스트</h3>
+<p><code>pytest</code>로 통합·단위 테스트 55개를 작성했다. 위 체크리스트 항목이 실제로 동작하는지를
+자동으로 검증하도록 했고, 매 테스트는 임시 폴더에 새 DB를 만들어 서로 간섭하지 않게 했다.
+메모리 기반 레이트리밋 버킷도 테스트마다 초기화한다.</p>
+<pre><code>$ python -m pytest tests/ -q
+.......................................................  [100%]
+55 passed
+</code></pre>
+<p>테스트는 크게 세 부류다. 기능이 되는지(가입/로그인/상품/검색/결제/찜/후기/알림), 막아야 할
+게 막히는지(CSRF 없는 POST, 남의 상품 수정, SQLi, XSS, 자기 결제, 이상 금액, 관리자 무단
+접근, 제3자 대화·알림 열람, 보류 상품 수정/삭제, 차단 판매자 정산), 그리고 동시성이 도는지
+(스레드 10개 동시 결제/송금에서 이중지불 0건, 동시 구매 시 1명만 성공)이다.</p>
+<p><code>tests/test_app.py</code>가 기본 기능·보안을, <code>tests/test_hardening.py</code>가 정밀 검증에서 잡은
+결함들의 회귀 방지를 담당한다.</p>
+<hr />
+<h2>7. 유지보수</h2>
+<p>만들고 끝이 아니라 계속 굴러가야 하니, 유지보수 관점에서 몇 가지를 정리해 뒀다.</p>
+<ul>
+<li><strong>설정 분리</strong>: 비밀키·관리자 계정·쿠키 옵션·프록시 홉 수가 전부 환경변수라, 코드를
+  건드리지 않고 환경만 바꿔 운영/개발을 오갈 수 있다.</li>
+<li><strong>검증 일원화</strong>: 입력 검증이 <code>validators.py</code>, 보안 장치가 <code>security.py</code>에 모여 있다.
+  기능을 추가할 때 같은 함수를 재사용하면 새 코드가 기존 방어를 우회할 여지가 적다.</li>
+<li><strong>마이그레이션</strong>: <code>db._migrate</code>가 기존 DB에 없는 컬럼을 안전하게 추가한다. 컬럼을 먼저
+  만들고 인덱스를 나중에 만드는 순서를 지켜, 새 DB와 업그레이드 DB 모두에서 깨지지 않는다.</li>
+<li><strong>테스트가 회귀 안전망</strong>: 리팩터링하거나 기능을 더할 때 <code>pytest</code>를 돌리면 기존 보안
+  동작이 깨졌는지 바로 잡힌다. 발견한 버그마다 회귀 테스트를 같이 남겼다.</li>
+<li><strong>로그</strong>: 로그인 시도는 <code>login_attempts</code>에 남아 이상 징후를 사후에 볼 수 있다.</li>
+</ul>
+<h3>앞으로 개선하면 좋을 것 (한계)</h3>
+<p>솔직하게 남은 것도 적는다.</p>
+<ul>
+<li>실시간은 폴링이라 최대 4~12초 지연이 있다. 접속자가 많아지면 WebSocket이 낫다.</li>
+<li>메모리 기반 레이트리밋은 단일 프로세스 기준이다. 워커를 여러 개 띄우면 Redis 같은 공용
+  저장소로 옮겨야 정확하다.</li>
+<li>실제 결제(PG) 연동은 없다. 지금 충전은 데모이고, 진짜 서비스라면 결제 승인 결과를 검증한
+  뒤에만 잔액을 올려야 한다.</li>
+<li><strong>의도적으로 수용한 낮은 위험</strong>: (1) 알림 읽음 처리가 GET이라 CSRF 대상이 아니지만,
+  본인 알림만·IDOR 차단됨·읽음 표시만 바뀌므로 영향이 미미하다. (2) 업로드 이미지를
+  Pillow로 재인코딩하지 않았지만, SVG 미허용 + nosniff + <code>script-src 'self'</code>로 실행이
+  막혀 있어 무거운 의존성을 추가하지 않았다.</li>
+<li>운영 배포 시엔 개발 서버 대신 waitress/gunicorn 뒤에 두고 HTTPS를 반드시 적용해야
+  한다(그래야 Secure 쿠키·HSTS가 의미를 가진다).</li>
+</ul>
+<hr />
+<h2>8. 생성형 AI 활용</h2>
+<p>과제 안내대로 개발 내내 생성형 AI(Claude)를 적극적으로 썼다. 주로 쓴 방식은 이렇다.</p>
+<ul>
+<li>보안 항목을 빠뜨리지 않도록 OWASP 기준 점검 목록을 함께 만들고, 각 기능마다 "여기서
+  뚫릴 수 있는 지점"을 짚어보는 데 활용했다.</li>
+<li>송금·에스크로처럼 놓치기 쉬운 동시성 문제를 리뷰받아 <code>BEGIN IMMEDIATE</code>와 <code>CHECK</code> 제약,
+  상태 기계로 다듬었다.</li>
+<li>완성 단계에선 인증/세션, 결제 동시성, 접근 통제, 인젝션·CSP를 각각 따로 파고드는 방식으로
+  코드를 독립적으로 교차 리뷰했다. 이 과정에서 1차 때 놓친 실제 결함들(보류 상품 삭제로 대금
+  증발, 수정으로 이중결제, 계정 잠금 DoS, 계정 열거 등)을 찾아냈다.</li>
+</ul>
+<p>다만 지적을 그대로 믿지 않고 전부 재현 테스트로 확인한 다음 고쳤고, AI가 제안한 것 중에서도
+이 프로젝트에 맞지 않는 건 걸러냈다(예: 무거운 외부 보안 라이브러리 도입은 의존성을 늘려서
+제외, 업로드 이미지 재인코딩은 현재 방어로 충분해 보류). 최종 코드는 직접 읽고 이해한 뒤
+반영했다.</p>
+<hr />
+<h2>부록. 실행 방법 (요약)</h2>
+<p>자세한 설치·실행은 저장소의 <code>README.md</code>에 있다.</p>
+<pre><code class="language-bash">pip install -r requirements.txt
+cp .env.example .env          # SECRET_KEY 를 무작위 값으로 채운다
+python run.py                 # http://127.0.0.1:5000
+python -m pytest tests/ -q    # 테스트 55개
+</code></pre></body></html>
